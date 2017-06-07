@@ -23,4 +23,6 @@ main = do
   con <- connect (address args) (fromInteger . port $ args)
   model <- discover con
   let modelFiltered = filter (\(ref, _) -> ref =~ filterExp args) model
-  forM_ modelFiltered print
+  forM_ modelFiltered $ \(ref, fc) -> do
+    val <- readVal con ref fc
+    putStrLn $ ref ++ "[" ++ show fc ++ "]: " ++ show val
