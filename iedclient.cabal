@@ -3,7 +3,6 @@ version:             0.1.0.0
 -- synopsis:
 -- description:
 homepage:            https://github.com/tpasternak/iedclient#readme
-license:             BSD3
 license-file:        LICENSE
 author:              Tomasz Pasternak
 maintainer:          pasternak.t@gmail.com
