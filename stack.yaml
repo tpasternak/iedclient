@@ -37,6 +37,15 @@ resolver: lts-8.17
 # will not be run. This is useful for tweaking upstream packages.
 packages:
 - '.'
+- location:
+    git: https://github.com/tpasternak/iechaskell.git
+    commit: d00d9b1
+  extra-dep: true
+- location:
+    git: https://github.com/ndmitchell/cmdargs.git
+    commit: v0.10.17
+  extra-dep: true
+
 # Dependency packages to be pulled from upstream that are not in the resolver
 # (e.g., acme-missiles-0.3)
 extra-deps: []
@@ -61,6 +70,10 @@ extra-package-dbs: []
 # Extra directories used by stack for building
 # extra-include-dirs: [/path/to/dir]
 # extra-lib-dirs: [/path/to/dir]
-#
+extra-include-dirs:
+- /usr/local/include/libiec61850
+
+extra-lib-dirs:
+- /usr/local/lib
 # Allow a newer minor version of GHC than the snapshot specifies
 # compiler-check: newer-minor
