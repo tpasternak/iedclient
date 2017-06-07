@@ -6,17 +6,21 @@ module Main where
 import           Control.Monad
 import           Iec61850.Client
 import           System.Console.CmdArgs
+import           Text.Regex.Posix
 
-data IedClient = IedClient { address :: String, port :: Integer }
+data IedClient = IedClient { address :: String, port :: Integer, filterExp :: String }
   deriving (Show, Data, Typeable)
 
-iedclient = IedClient { address = "localhost" &= help "IP Address", port = 102 &= help "IP Port" } &= summary
-                                                                                                        "IEC 61850 device client"
+iedclient = IedClient
+              { address = "localhost" &= help "IP Address"
+              , port = 102 &= help "IP Port"
+              , filterExp = def &= help "Filter fields by this regex"
+              } &= summary "IEC 61850 device client"
 
 main :: IO ()
 main = do
   args <- cmdArgs iedclient
-  print args
   con <- connect (address args) (fromInteger . port $ args)
   model <- discover con
-  forM_ model print
+  let modelFiltered = filter (\(ref, _) -> ref =~ filterExp args) model
+  forM_ modelFiltered print
