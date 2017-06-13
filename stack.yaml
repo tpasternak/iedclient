@@ -39,7 +39,7 @@ packages:
 - '.'
 - location:
     git: https://github.com/tpasternak/iechaskell.git
-    commit: 02a9e39f0d
+    commit: f9a5a8d
   extra-dep: true
 - location:
     git: https://github.com/ndmitchell/cmdargs.git
