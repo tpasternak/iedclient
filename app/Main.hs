@@ -16,7 +16,8 @@ data IedClient = IedClient {
   address      :: String,
   port         :: Integer,
   filterExp    :: String,
-  refreshCache :: Bool
+  refreshCache :: Bool,
+  tui          :: Bool
   } deriving (Show, Data, Typeable)
 
 iedclient = IedClient
@@ -24,6 +25,7 @@ iedclient = IedClient
               , port = 102 &= help "IP Port"
               , refreshCache = False &= help "Refresh cached model for the device"
               , filterExp = def &= help "Filter fields by this regex"
+              , tui = False &= help "Terminal user interface"
               } &= summary "IEC 61850 device client"
 
 fetchAndSaveModel con modelsDir modelFile = do
@@ -57,6 +59,8 @@ main = do
                      fetchAndSaveModel con modelsDir modelFile
 
   let modelFiltered = filter (\(ref, _) -> ref =~ filterExp args) model
-  forM_ modelFiltered $ \(ref, fc) -> do
+  sts <- forM modelFiltered $ \(ref, fc) -> do
     val <- readVal con ref fc
+    return (ref, fc, val)
+  forM_ sts $ \(ref, fc, val) -> do
     putStrLn $ ref ++ "[" ++ show fc ++ "]: " ++ show val
