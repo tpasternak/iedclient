@@ -11,6 +11,11 @@ import           System.Directory
 import           System.IO
 import           Text.Read
 import           Text.Regex.Posix
+import           Lens.Micro
+
+import qualified Brick.Main as M
+import qualified Graphics.Vty as V
+import Brick
 
 data IedClient = IedClient {
   address      :: String,
@@ -37,6 +42,18 @@ fetchAndSaveModel con modelsDir modelFile = do
                    renameFile path modelFile
                    return model_
 
+drawUI :: [String] -> [Widget ()]
+drawUI (xs) = [vBox (str <$> xs)]
+
+app :: M.App [String] e ()
+app =
+    M.App { M.appDraw = drawUI
+          , M.appStartEvent = return
+          , M.appHandleEvent = resizeOrQuit
+          , M.appAttrMap = const $ attrMap V.defAttr []
+          , M.appChooseCursor = M.neverShowCursor
+}
+
 main :: IO ()
 main = do
   args <- cmdArgs iedclient
@@ -62,5 +79,10 @@ main = do
   sts <- forM modelFiltered $ \(ref, fc) -> do
     val <- readVal con ref fc
     return (ref, fc, val)
-  forM_ sts $ \(ref, fc, val) -> do
-    putStrLn $ ref ++ "[" ++ show fc ++ "]: " ++ show val
+
+  if tui args then do
+    x <- defaultMain app (map (^._1) sts)
+    return ()
+  else
+    forM_ sts $ \(ref, fc, val) -> do
+      putStrLn $ ref ++ "[" ++ show fc ++ "]: " ++ show val
