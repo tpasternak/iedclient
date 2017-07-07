@@ -30,7 +30,8 @@ executable iedclient
                      , directory
                      , brick
                      , vty
-                     , microlens
+                     , lens
+
   default-language:    Haskell2010
 
 test-suite iedclient-test

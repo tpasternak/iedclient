@@ -1,4 +1,6 @@
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# OPTIONS_GHC -fno-cse #-}
 
 module Main where
@@ -11,11 +13,13 @@ import           System.Directory
 import           System.IO
 import           Text.Read
 import           Text.Regex.Posix
-import           Lens.Micro
-
+import           Control.Lens
+import           Control.Lens.TH
+import qualified Brick.Types as T
 import qualified Brick.Main as M
 import qualified Graphics.Vty as V
 import Brick
+
 
 data IedClient = IedClient {
   address      :: String,
@@ -42,17 +46,26 @@ fetchAndSaveModel con modelsDir modelFile = do
                    renameFile path modelFile
                    return model_
 
-drawUI :: [String] -> [Widget ()]
-drawUI (xs) = [vBox (str <$> xs)]
+drawUI :: Model -> [Widget ()]
+drawUI (Model xs skipNo sel) = [vBox (str <$> (take 20 . drop skipNo) selectedXs)]
+  where selectedXs = over (element sel) ('*':) xs 
 
-app :: M.App [String] e ()
+data Model = Model {
+  _fields :: [String],
+  _firstRow :: Int,
+  _selection:: Int
+  }
+
+makeLenses ''Model
+
+app :: M.App Model e ()
 app =
     M.App { M.appDraw = drawUI
           , M.appStartEvent = return
-          , M.appHandleEvent = resizeOrQuit
+          , M.appHandleEvent = appEvent
           , M.appAttrMap = const $ attrMap V.defAttr []
           , M.appChooseCursor = M.neverShowCursor
-}
+          }
 
 main :: IO ()
 main = do
@@ -81,8 +94,28 @@ main = do
     return (ref, fc, val)
 
   if tui args then do
-    x <- defaultMain app (map (^._1) sts)
+    x <- defaultMain app (Model (map (^._1) sts) 0 0)
     return ()
   else
     forM_ sts $ \(ref, fc, val) -> do
       putStrLn $ ref ++ "[" ++ show fc ++ "]: " ++ show val
+
+
+moveDown st
+  | st ^. selection == length (st ^. fields) -1 = st
+  | st ^. firstRow + 19 ==  st ^. selection = over selection (+1) . over firstRow (+1) $ st
+  | otherwise = over selection (+1) st
+
+moveUp st
+  | st ^. selection == 0 = st
+  | st ^. firstRow ==  st ^. selection = over selection (\x -> x -1 ) . over firstRow (\x -> x-1) $ st
+  | otherwise = over selection (\x -> x - 1) st
+
+
+appEvent :: Model -> T.BrickEvent () e -> T.EventM () (T.Next Model)
+appEvent st (T.VtyEvent (V.EvKey V.KDown [])) =
+   M.continue $ moveDown st
+appEvent st (T.VtyEvent (V.EvKey V.KUp [])) =
+   M.continue $ moveUp st
+
+
