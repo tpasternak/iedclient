@@ -19,7 +19,9 @@ import qualified Brick.Types as T
 import qualified Brick.Main as M
 import qualified Graphics.Vty as V
 import Brick
-
+import Brick.Widgets.Center
+import Brick.Widgets.Border
+import Brick.Widgets.Edit
 
 data IedClient = IedClient {
   address      :: String,
@@ -28,6 +30,8 @@ data IedClient = IedClient {
   refreshCache :: Bool,
   tui          :: Bool
   } deriving (Show, Data, Typeable)
+
+data Name = Edit1 deriving (Eq, Show, Ord)
 
 iedclient = IedClient
               { address = "localhost" &= help "IP Address"
@@ -46,14 +50,21 @@ fetchAndSaveModel con modelsDir modelFile = do
                    renameFile path modelFile
                    return model_
 
+fieldsList :: Model -> [Widget ()]
+fieldsList (Model xs skipNo sel _) = [border $ vBox (str <$> visibleXs)]
+  where visibleXs = (take 20 . drop skipNo) selectedXs
+        selectedXs = over (element sel) ('*':) xs 
+
+
 drawUI :: Model -> [Widget ()]
-drawUI (Model xs skipNo sel) = [vBox (str <$> (take 20 . drop skipNo) selectedXs)]
-  where selectedXs = over (element sel) ('*':) xs 
+drawUI m = [vBox $ border (str $ "Filter: " ++ _filterReg m ) : fieldsList m]
+
 
 data Model = Model {
   _fields :: [String],
   _firstRow :: Int,
-  _selection:: Int
+  _selection :: Int,
+  _filterReg :: String
   }
 
 makeLenses ''Model
@@ -94,11 +105,10 @@ main = do
     return (ref, fc, val)
 
   if tui args then do
-    x <- defaultMain app (Model (map (^._1) sts) 0 0)
+    x <- defaultMain app (Model (map (^._1) sts) 0 0 "")
     return ()
   else
-    forM_ sts $ \(ref, fc, val) -> do
-      putStrLn $ ref ++ "[" ++ show fc ++ "]: " ++ show val
+    forM_ sts $ \(ref, fc, val) -> putStrLn $ ref ++ "[" ++ show fc ++ "]: " ++ show val
 
 
 moveDown st
