@@ -23,6 +23,11 @@ import Brick.Widgets.Center
 import Brick.Widgets.Border
 import Brick.Widgets.Edit
 
+import qualified Brick.Widgets.Center as C
+import qualified Brick.Widgets.Edit as E
+import qualified Brick.AttrMap as A
+import qualified Brick.Focus as F
+
 data IedClient = IedClient {
   address      :: String,
   port         :: Integer,
@@ -30,8 +35,6 @@ data IedClient = IedClient {
   refreshCache :: Bool,
   tui          :: Bool
   } deriving (Show, Data, Typeable)
-
-data Name = Edit1 deriving (Eq, Show, Ord)
 
 iedclient = IedClient
               { address = "localhost" &= help "IP Address"
@@ -128,4 +131,23 @@ appEvent st (T.VtyEvent (V.EvKey V.KDown [])) =
 appEvent st (T.VtyEvent (V.EvKey V.KUp [])) =
    M.continue $ moveUp st
 
+
+
+
+
+data Name = Edit1
+          | Edit2
+          deriving (Ord, Show, Eq)
+
+data St =
+    St { _focusRing :: F.FocusRing Name
+       , _edit1 :: E.Editor String Name
+       , _edit2 :: E.Editor String Name
+       }
+
+initialState :: St
+initialState =
+    St (F.focusRing [Edit1, Edit2])
+       (E.editor Edit1 (str . unlines) Nothing "")
+       (E.editor Edit2 (str . unlines) (Just 2) "")
 
