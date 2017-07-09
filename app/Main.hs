@@ -55,10 +55,11 @@ fetchAndSaveModel con modelsDir modelFile = do
                    renameFile path modelFile
                    return model_
 
+-- (Model xs skipNo sel _ _ _)
 fieldsList :: Model -> [Widget ()]
-fieldsList (Model xs skipNo sel _ _ _) = [border $ vBox (str <$> visibleXs)]
-  where visibleXs = (take 20 . drop skipNo) selectedXs
-        selectedXs = over (element sel) ('*':) xs 
+fieldsList m = [border $ vBox (str <$> visibleXs)]
+  where visibleXs = (take 20 . drop (_firstRow m)) selectedXs
+        selectedXs = over (element $ _selection m) ('*':) (_fields m)
 
 
 drawUI :: Model -> [Widget ()]
