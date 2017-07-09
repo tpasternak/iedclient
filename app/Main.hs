@@ -23,10 +23,12 @@ import Brick.Widgets.Center
 import Brick.Widgets.Border
 import Brick.Widgets.Edit
 
-import qualified Brick.Widgets.Center as C
-import qualified Brick.Widgets.Edit as E
-import qualified Brick.AttrMap as A
+import Brick.Widgets.Edit
 import qualified Brick.Focus as F
+
+data Name = Edit1
+          deriving (Ord, Show, Eq)
+
 
 data IedClient = IedClient {
   address      :: String,
@@ -54,7 +56,7 @@ fetchAndSaveModel con modelsDir modelFile = do
                    return model_
 
 fieldsList :: Model -> [Widget ()]
-fieldsList (Model xs skipNo sel _) = [border $ vBox (str <$> visibleXs)]
+fieldsList (Model xs skipNo sel _ _ _) = [border $ vBox (str <$> visibleXs)]
   where visibleXs = (take 20 . drop skipNo) selectedXs
         selectedXs = over (element sel) ('*':) xs 
 
@@ -67,7 +69,9 @@ data Model = Model {
   _fields :: [String],
   _firstRow :: Int,
   _selection :: Int,
-  _filterReg :: String
+  _filterReg :: String,
+  _focusRing :: F.FocusRing Name,
+  _edit1 :: Editor String Name  
   }
 
 makeLenses ''Model
@@ -108,7 +112,8 @@ main = do
     return (ref, fc, val)
 
   if tui args then do
-    x <- defaultMain app (Model (map (^._1) sts) 0 0 "")
+    x <- defaultMain app (Model (map (^._1) sts) 0 0 "" (F.focusRing [Edit1])
+       (editor Edit1 (str . unlines) Nothing ""))
     return ()
   else
     forM_ sts $ \(ref, fc, val) -> putStrLn $ ref ++ "[" ++ show fc ++ "]: " ++ show val
@@ -134,20 +139,4 @@ appEvent st (T.VtyEvent (V.EvKey V.KUp [])) =
 
 
 
-
-data Name = Edit1
-          | Edit2
-          deriving (Ord, Show, Eq)
-
-data St =
-    St { _focusRing :: F.FocusRing Name
-       , _edit1 :: E.Editor String Name
-       , _edit2 :: E.Editor String Name
-       }
-
-initialState :: St
-initialState =
-    St (F.focusRing [Edit1, Edit2])
-       (E.editor Edit1 (str . unlines) Nothing "")
-       (E.editor Edit2 (str . unlines) (Just 2) "")
 
