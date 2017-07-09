@@ -26,9 +26,7 @@ import Brick.Widgets.Edit
 import Brick.Widgets.Edit
 import qualified Brick.Focus as F
 
-data Name = Edit1
-          deriving (Ord, Show, Eq)
-
+data Name = Name1 | Name2 deriving (Eq,Show,Ord)
 
 data IedClient = IedClient {
   address      :: String,
@@ -56,14 +54,11 @@ fetchAndSaveModel con modelsDir modelFile = do
                    return model_
 
 -- (Model xs skipNo sel _ _ _)
-fieldsList :: Model -> [Widget ()]
+fieldsList :: Model -> [Widget Name]
 fieldsList m = [border $ vBox (str <$> visibleXs)]
   where visibleXs = (take 20 . drop (_firstRow m)) selectedXs
         selectedXs = over (element $ _selection m) ('*':) (_fields m)
 
-
-drawUI :: Model -> [Widget ()]
-drawUI m = [vBox $ border (str $ "Filter: " ++ _filterReg m ) : fieldsList m]
 
 
 data Model = Model {
@@ -77,7 +72,13 @@ data Model = Model {
 
 makeLenses ''Model
 
-app :: M.App Model e ()
+drawUI :: Model -> [Widget Name]
+drawUI m = [vBox $ e : fieldsList m]
+  where e = border (F.withFocusRing (m^. focusRing) renderEditor (m^. edit1)) 
+
+
+
+app :: M.App Model e Name
 app =
     M.App { M.appDraw = drawUI
           , M.appStartEvent = return
@@ -113,8 +114,8 @@ main = do
     return (ref, fc, val)
 
   if tui args then do
-    x <- defaultMain app (Model (map (^._1) sts) 0 0 "" (F.focusRing [Edit1])
-       (editor Edit1 (str . unlines) Nothing ""))
+    x <- defaultMain app (Model (map (^._1) sts) 0 0 "" (F.focusRing [Name1])
+       (editor Name1 (str . unlines) Nothing ""))
     return ()
   else
     forM_ sts $ \(ref, fc, val) -> putStrLn $ ref ++ "[" ++ show fc ++ "]: " ++ show val
@@ -131,13 +132,9 @@ moveUp st
   | otherwise = over selection (\x -> x - 1) st
 
 
-appEvent :: Model -> T.BrickEvent () e -> T.EventM () (T.Next Model)
+appEvent :: Model -> T.BrickEvent Name e -> T.EventM Name (T.Next Model)
 appEvent st (T.VtyEvent (V.EvKey V.KDown [])) =
    M.continue $ moveDown st
 appEvent st (T.VtyEvent (V.EvKey V.KUp [])) =
    M.continue $ moveUp st
-
-
-
-
 
