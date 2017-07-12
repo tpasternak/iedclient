@@ -22,11 +22,12 @@ import Brick
 import Brick.Widgets.Center
 import Brick.Widgets.Border
 import Brick.Widgets.Edit
+import Brick.Widgets.Core
+import Data.Bits
 
-import Brick.Widgets.Edit
 import qualified Brick.Focus as F
 
-data Name = Name1 | Name2 deriving (Eq,Show,Ord)
+data Name = FilterField | ListField deriving (Eq,Show,Ord)
 
 data IedClient = IedClient {
   address      :: String,
@@ -53,12 +54,6 @@ fetchAndSaveModel con modelsDir modelFile = do
                    renameFile path modelFile
                    return model_
 
--- (Model xs skipNo sel _ _ _)
-fieldsList :: Model -> [Widget Name]
-fieldsList m = [border $ vBox (str <$> visibleXs)]
-  where visibleXs = (take 20 . drop (_firstRow m)) selectedXs
-        selectedXs = over (element $ _selection m) ('*':) (_fields m)
-
 
 
 data Model = Model {
@@ -67,14 +62,21 @@ data Model = Model {
   _selection :: Int,
   _filterReg :: String,
   _focusRing :: F.FocusRing Name,
-  _edit1 :: Editor String Name  
+  _edit1 :: Editor String Name
   }
 
 makeLenses ''Model
 
+fieldsList :: Model -> Widget Name
+fieldsList m = border $ vBox $  (vLimit 1 <$> (<+> fill ' ') <$> str <$> visibleXs)
+  where regexString = head $ getEditContents $ m ^. edit1
+        visibleXs = (take 20 . drop (_firstRow m)) selectedXs
+        selectedXs = over (element $ m ^. selection) ('*':) matchingXs
+        matchingXs= filter (=~ regexString) (m ^. fields)
+
 drawUI :: Model -> [Widget Name]
-drawUI m = [vBox $ e : fieldsList m]
-  where e = border (F.withFocusRing (m^. focusRing) renderEditor (m^. edit1)) 
+drawUI m = [e <=> fieldsList m ]
+  where e = vLimit 3 $ border (F.withFocusRing (m^. focusRing) renderEditor (m^. edit1)) 
 
 
 
@@ -84,7 +86,7 @@ app =
           , M.appStartEvent = return
           , M.appHandleEvent = appEvent
           , M.appAttrMap = const $ attrMap V.defAttr []
-          , M.appChooseCursor = M.neverShowCursor
+          , M.appChooseCursor =  F.focusRingCursor (^.focusRing)
           }
 
 main :: IO ()
@@ -112,14 +114,14 @@ main = do
   sts <- forM modelFiltered $ \(ref, fc) -> do
     val <- readVal con ref fc
     return (ref, fc, val)
-
   if tui args then do
-    x <- defaultMain app (Model (map (^._1) sts) 0 0 "" (F.focusRing [Name1])
-       (editor Name1 (str . unlines) Nothing ""))
+    x <- defaultMain app (initialState sts)
     return ()
   else
     forM_ sts $ \(ref, fc, val) -> putStrLn $ ref ++ "[" ++ show fc ++ "]: " ++ show val
 
+initialState sts =(Model (map (^._1) sts) 0 0 "" (F.focusRing [FilterField, FilterField])
+       (editor FilterField (str . unlines) Nothing ""))
 
 moveDown st
   | st ^. selection == length (st ^. fields) -1 = st
@@ -133,8 +135,10 @@ moveUp st
 
 
 appEvent :: Model -> T.BrickEvent Name e -> T.EventM Name (T.Next Model)
-appEvent st (T.VtyEvent (V.EvKey V.KDown [])) =
-   M.continue $ moveDown st
-appEvent st (T.VtyEvent (V.EvKey V.KUp [])) =
-   M.continue $ moveUp st
+appEvent st (T.VtyEvent (V.EvKey V.KDown [])) = M.continue $ moveDown st
+appEvent st (T.VtyEvent (V.EvKey V.KUp [])) = M.continue $ moveUp st
+appEvent st (T.VtyEvent (V.EvKey V.KEsc [])) = M.halt st
+appEvent st (T.VtyEvent (V.EvKey (V.KChar '\t') [])) = M.continue $ st & focusRing %~ F.focusNext
+appEvent st (T.VtyEvent e) = M.continue =<< case F.focusGetCurrent (st^.focusRing) of
+               Just FilterField -> T.handleEventLensed st edit1 handleEditorEvent e
 
