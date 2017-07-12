@@ -27,7 +27,7 @@ import Data.Bits
 
 import qualified Brick.Focus as F
 
-data Name = FilterField | ListField deriving (Eq,Show,Ord)
+data Name = FilterField | ListField | Viewport1 deriving (Eq,Show,Ord)
 
 data IedClient = IedClient {
   address      :: String,
@@ -67,15 +67,15 @@ data Model = Model {
 
 makeLenses ''Model
 
-fieldsList :: Model -> Widget Name
-fieldsList m = border $ vBox $  (vLimit 1 <$> (<+> fill ' ') <$> str <$> visibleXs)
+fieldsListV :: Model -> Widget Name
+fieldsListV m = border $ viewport Viewport1 Vertical $ vBox $ visibleXs
   where regexString = head $ getEditContents $ m ^. edit1
-        visibleXs = (take 20 . drop (_firstRow m)) selectedXs
-        selectedXs = over (element $ m ^. selection) ('*':) matchingXs
-        matchingXs= filter (=~ regexString) (m ^. fields)
+        visibleXs = over (element $ m ^. selection) visible selectedXs
+        selectedXs = str <$> (over (element $ m ^. selection) ('*':) matchingXs)
+        matchingXs= filter (=~ regexString) (m ^. fields)        
 
 drawUI :: Model -> [Widget Name]
-drawUI m = [e <=> fieldsList m ]
+drawUI m = [e <=> fieldsListV m]
   where e = vLimit 3 $ border (F.withFocusRing (m^. focusRing) renderEditor (m^. edit1)) 
 
 
