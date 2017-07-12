@@ -8,6 +8,8 @@ module Main where
 import           Control.Exception
 import           Control.Monad
 import           Iec61850.Client
+import           Iec61850.Mms
+import           Iec61850.Enums.FC
 import           System.Console.CmdArgs
 import           System.Directory
 import           System.IO
@@ -19,11 +21,13 @@ import qualified Brick.Types as T
 import qualified Brick.Main as M
 import qualified Graphics.Vty as V
 import Brick
+import Brick.Util
 import Brick.Widgets.Center
 import Brick.Widgets.Border
 import Brick.Widgets.Edit
 import Brick.Widgets.Core
 import Data.Bits
+import Graphics.Vty
 
 import qualified Brick.Focus as F
 
@@ -57,7 +61,7 @@ fetchAndSaveModel con modelsDir modelFile = do
 
 
 data Model = Model {
-  _fields :: [String],
+  _fields :: [(String,FunctionalConstraint,MmsVar)],
   _selection :: Int,
   _filterReg :: String,
   _focusRing :: F.FocusRing Name,
@@ -67,11 +71,11 @@ data Model = Model {
 makeLenses ''Model
 
 fieldsListV :: Model -> Widget Name
-fieldsListV m = border $ viewport Viewport1 Vertical $ vBox $ visibleXs
+fieldsListV m = border $ viewport Viewport1 Vertical $ vBox $ (vLimit 1 <$> visibleXs)
   where regexString = head $ getEditContents $ m ^. edit1
-        visibleXs = over (element $ m ^. selection) visible selectedXs
-        selectedXs = str <$> (over (element $ m ^. selection) ('*':) matchingXs)
-        matchingXs= filter (=~ regexString) (m ^. fields)        
+        visibleXs = over (element $ m ^. selection) (\x -> visible $ withAttr (attrName "blueBg") $ x) stringedXs
+        stringedXs = (<+> fill ' ') <$> str <$> (map (\(x,y,z) -> x ++ " " ++ show y ++ " "++ show z) matchingXs)
+        matchingXs = filter ((=~ regexString) . \(x,_,_) -> x)  (m ^. fields)
 
 drawUI :: Model -> [Widget Name]
 drawUI m = [e <=> fieldsListV m]
@@ -84,7 +88,7 @@ app =
     M.App { M.appDraw = drawUI
           , M.appStartEvent = return
           , M.appHandleEvent = appEvent
-          , M.appAttrMap = const $ attrMap V.defAttr []
+          , M.appAttrMap = const $ attrMap V.defAttr [ (attrName "blueBg", Brick.Util.bg Graphics.Vty.blue)]                            
           , M.appChooseCursor =  F.focusRingCursor (^.focusRing)
           }
 
@@ -119,7 +123,7 @@ main = do
   else
     forM_ sts $ \(ref, fc, val) -> putStrLn $ ref ++ "[" ++ show fc ++ "]: " ++ show val
 
-initialState sts =(Model (map (^._1) sts) 0 "" (F.focusRing [FilterField, FilterField])
+initialState sts =(Model sts 0 "" (F.focusRing [FilterField, FilterField])
        (editor FilterField (str . unlines) Nothing ""))
 
 moveDown st
