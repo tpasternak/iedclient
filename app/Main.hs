@@ -58,7 +58,6 @@ fetchAndSaveModel con modelsDir modelFile = do
 
 data Model = Model {
   _fields :: [String],
-  _firstRow :: Int,
   _selection :: Int,
   _filterReg :: String,
   _focusRing :: F.FocusRing Name,
@@ -120,17 +119,15 @@ main = do
   else
     forM_ sts $ \(ref, fc, val) -> putStrLn $ ref ++ "[" ++ show fc ++ "]: " ++ show val
 
-initialState sts =(Model (map (^._1) sts) 0 0 "" (F.focusRing [FilterField, FilterField])
+initialState sts =(Model (map (^._1) sts) 0 "" (F.focusRing [FilterField, FilterField])
        (editor FilterField (str . unlines) Nothing ""))
 
 moveDown st
   | st ^. selection == length (st ^. fields) -1 = st
-  | st ^. firstRow + 19 ==  st ^. selection = over selection (+1) . over firstRow (+1) $ st
   | otherwise = over selection (+1) st
 
 moveUp st
   | st ^. selection == 0 = st
-  | st ^. firstRow ==  st ^. selection = over selection (\x -> x -1 ) . over firstRow (\x -> x-1) $ st
   | otherwise = over selection (\x -> x - 1) st
 
 
