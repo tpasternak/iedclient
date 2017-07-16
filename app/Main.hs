@@ -139,9 +139,9 @@ appEvent st (T.VtyEvent (V.EvKey (V.KChar '\t') [])) = M.continue $ st & focusRi
 appEvent st (T.VtyEvent e) = do
   ss <- case F.focusGetCurrent (st ^. focusRing) of
     Just FilterField -> T.handleEventLensed st edit1 handleEditorEvent e
-  let regexString = head $ getEditContents $ st ^. edit1
-  let matchingXs = filter ((=~ regexString) . \(x,_,_) -> x)  (st ^. fields)
+  let regexString = head $ getEditContents $ ss ^. edit1
+  let matchingXs = filter ((=~ regexString) . \(x,_,_) -> x)  (ss ^. fields)
   let ss2 = set matchingFields matchingXs ss
-  let ss3 = over selection (\x -> min x ((length matchingXs)-1)) ss2
+  let ss3 = over selection (\x -> max  0 (min x ((length matchingXs)-1))) ss2
   continue $ ss3
 
