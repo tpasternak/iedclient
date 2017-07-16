@@ -71,9 +71,8 @@ makeLenses ''Model
 
 fieldsListV :: Model -> Widget Name
 fieldsListV m = border $ viewport Viewport1 Vertical $ vBox $ (vLimit 1 <$> visibleXs)
-  where regexString = head $ getEditContents $ m ^. edit1
-        visibleXs = over (element $ m ^. selection) (\x -> visible $ withAttr (attrName "blueBg") $ x) stringedXs
-        stringedXs = (<+> fill ' ') <$> str <$> (map (\(x,y,z) -> x ++ " " ++ show y ++ " "++ show z) (m ^. matchingFields))
+  where visibleXs = over (element $ m ^. selection) (visible . withAttr (attrName "blueBg")) stringedXs
+        stringedXs = map (\(x,y,z) -> hLimit 60 (str x <+> fill ' ' )<+> str (show y) <+> str "  "  <+> str(show z)) (m ^. matchingFields)
 
 drawUI :: Model -> [Widget Name]
 drawUI m = [e <=> fieldsListV m]
