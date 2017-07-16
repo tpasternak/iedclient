@@ -58,10 +58,9 @@ fetchAndSaveModel con modelsDir modelFile = do
                    renameFile path modelFile
                    return model_
 
-
-
 data Model = Model {
   _fields :: [(String,FunctionalConstraint,MmsVar)],
+  _matchingFields :: [(String,FunctionalConstraint,MmsVar)],
   _selection :: Int,
   _filterReg :: String,
   _focusRing :: F.FocusRing Name,
@@ -74,14 +73,11 @@ fieldsListV :: Model -> Widget Name
 fieldsListV m = border $ viewport Viewport1 Vertical $ vBox $ (vLimit 1 <$> visibleXs)
   where regexString = head $ getEditContents $ m ^. edit1
         visibleXs = over (element $ m ^. selection) (\x -> visible $ withAttr (attrName "blueBg") $ x) stringedXs
-        stringedXs = (<+> fill ' ') <$> str <$> (map (\(x,y,z) -> x ++ " " ++ show y ++ " "++ show z) matchingXs)
-        matchingXs = filter ((=~ regexString) . \(x,_,_) -> x)  (m ^. fields)
+        stringedXs = (<+> fill ' ') <$> str <$> (map (\(x,y,z) -> x ++ " " ++ show y ++ " "++ show z) (m ^. matchingFields))
 
 drawUI :: Model -> [Widget Name]
 drawUI m = [e <=> fieldsListV m]
   where e = vLimit 3 $ border (F.withFocusRing (m^. focusRing) renderEditor (m^. edit1)) 
-
-
 
 app :: M.App Model e Name
 app =
@@ -123,11 +119,11 @@ main = do
   else
     forM_ sts $ \(ref, fc, val) -> putStrLn $ ref ++ "[" ++ show fc ++ "]: " ++ show val
 
-initialState sts =(Model sts 0 "" (F.focusRing [FilterField, FilterField])
+initialState sts =(Model sts sts 0 "" (F.focusRing [FilterField, FilterField])
        (editor FilterField (str . unlines) Nothing ""))
 
 moveDown st
-  | st ^. selection == length (st ^. fields) -1 = st
+  | st ^. selection == length (st ^. matchingFields) -1 = st
   | otherwise = over selection (+1) st
 
 moveUp st
@@ -140,6 +136,12 @@ appEvent st (T.VtyEvent (V.EvKey V.KDown [])) = M.continue $ moveDown st
 appEvent st (T.VtyEvent (V.EvKey V.KUp [])) = M.continue $ moveUp st
 appEvent st (T.VtyEvent (V.EvKey V.KEsc [])) = M.halt st
 appEvent st (T.VtyEvent (V.EvKey (V.KChar '\t') [])) = M.continue $ st & focusRing %~ F.focusNext
-appEvent st (T.VtyEvent e) = M.continue =<< case F.focusGetCurrent (st^.focusRing) of
-               Just FilterField -> T.handleEventLensed st edit1 handleEditorEvent e
+appEvent st (T.VtyEvent e) = do
+  ss <- case F.focusGetCurrent (st ^. focusRing) of
+    Just FilterField -> T.handleEventLensed st edit1 handleEditorEvent e
+  let regexString = head $ getEditContents $ st ^. edit1
+  let matchingXs = filter ((=~ regexString) . \(x,_,_) -> x)  (st ^. fields)
+  let ss2 = set matchingFields matchingXs ss
+  let ss3 = over selection (\x -> min x ((length matchingXs)-1)) ss2
+  continue $ ss3
 
