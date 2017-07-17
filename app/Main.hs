@@ -18,6 +18,7 @@ import           Text.Regex.Posix
 import           Control.Lens
 import           Control.Lens.TH
 import qualified Brick.Types as T
+import Brick.Types
 import qualified Brick.Main as M
 import qualified Graphics.Vty as V
 import Brick
@@ -31,6 +32,7 @@ import Graphics.Vty
 import Control.Concurrent
 import Brick.BChan (newBChan, writeBChan)
 import qualified Brick.Focus as F
+import Control.Concurrent
 
 data Name = FilterField | ListField | Viewport1 deriving (Eq,Show,Ord)
 
@@ -65,7 +67,9 @@ data Model = Model {
   _selection :: Int,
   _filterReg :: String,
   _focusRing :: F.FocusRing Name,
-  _edit1 :: Editor String Name
+  _edit1 :: Editor String Name,
+  _mv :: MVar (),
+  _refreshing :: Bool
   }
 
 makeLenses ''Model
@@ -75,16 +79,24 @@ fieldsListV m = border $ viewport Viewport1 Vertical $ vBox (vLimit 1 <$> visibl
   where visibleXs = over (element $ m ^. selection) (visible . withAttr (attrName "blueBg")) stringedXs
         stringedXs = map (\(x,y,z) -> hLimit 50 (str x <+> fill ' ') <+> str (show y) <+> str "  "  <+> str(show z) <+> fill ' ') (m ^. matchingFields)
 
+blackOnWhite = withAttr (attrName "whiteBg") . withAttr (attrName "blackFg") 
+
 drawUI :: Model -> [Widget Name]
-drawUI m = [e <=> fieldsListV m]
-  where e = vLimit 3 $ border (F.withFocusRing (m^. focusRing) renderEditor (m^. edit1)) 
+drawUI m = [e <=> refreshingStatus <=> fieldsListV m <=> helpBar]
+  where e = vLimit 3 $ border (F.withFocusRing (m^. focusRing) renderEditor (m^. edit1))
+        refreshingStatus = str (if m ^. refreshing then "Refreshing" else " ")
+        helpBar =  blackOnWhite (str "F5") <+> str " refresh | " <+> blackOnWhite (str "Esc") <+> str " exit"
 
 app :: M.App Model Tick Name
 app =
     M.App { M.appDraw = drawUI
           , M.appStartEvent = return
           , M.appHandleEvent = appEvent
-          , M.appAttrMap = const $ attrMap V.defAttr [ (attrName "blueBg", Brick.Util.bg Graphics.Vty.blue)]                            
+          , M.appAttrMap =
+              const $ attrMap V.defAttr
+              [ (attrName "blueBg", Brick.Util.bg Graphics.Vty.blue),
+                (attrName "blackFg", Brick.Util.fg Graphics.Vty.black),
+                (attrName "whiteBg", Brick.Util.bg Graphics.Vty.white)]
           , M.appChooseCursor =  F.focusRingCursor (^.focusRing)
           }
 
@@ -118,18 +130,19 @@ main = do
   let modelFiltered = filter (\(ref, _) -> ref =~ filterExp args) model
   sts <- mmsReadSeries con modelFiltered
   if tui args then do
-    chan <- newBChan 10
+    chan <- newBChan 1
+    mv <- newEmptyMVar
     forkIO $ forever $ do
+      takeMVar mv
       sts <- mmsReadSeries con modelFiltered
       writeBChan chan (Tick sts)
-      threadDelay 5000000
-    x <- customMain (V.mkVty V.defaultConfig) (Just chan) app (initialState sts)
+    x <- customMain (V.mkVty V.defaultConfig) (Just chan) app (initialState sts mv)
     return ()
   else
     forM_ sts $ \(ref, fc, val) -> putStrLn $ ref ++ "[" ++ show fc ++ "]: " ++ show val
 
-initialState sts =Model sts sts 0 "" (F.focusRing [FilterField, FilterField])
-                  (editor FilterField (str . unlines) Nothing "")
+initialState sts mv =Model sts sts 0 "" (F.focusRing [FilterField, FilterField])
+                  (editor FilterField (str . unlines) Nothing "") mv False
 
 moveDown st
   | st ^. selection == length (st ^. matchingFields) -1 = st
@@ -141,19 +154,26 @@ moveUp st
 
 data Tick = Tick [(String,FunctionalConstraint,MmsVar)]
 
-updateMatchingXs ss = 
+updateMatchingXs ss =
   let regexString = head $ getEditContents $ ss ^. edit1
       matchingXs = filter ((=~ regexString) . \(x,_,_) -> x)  (ss ^. fields)
       ss2 = set matchingFields matchingXs ss
   in over selection (\x -> max  0 (min x (length matchingXs - 1))) ss2
-
-
 appEvent :: Model -> T.BrickEvent Name Tick -> T.EventM Name (T.Next Model)
 appEvent st (T.VtyEvent (V.EvKey V.KDown [])) = M.continue $ moveDown st
 appEvent st (AppEvent (Tick sts)) = do
   let ss = set fields sts st
   let ss2 = updateMatchingXs ss
-  M.continue ss2
+  let ss3 = set refreshing False ss2
+  M.continue ss3
+appEvent st (T.VtyEvent (V.EvKey (V.KFun 5) [])) =
+  if not $ st ^. refreshing then
+    M.suspendAndResume $ do
+    putMVar (st ^. mv) ()
+    return $  set refreshing True st
+  else
+    continue st
+
 appEvent st (T.VtyEvent (V.EvKey V.KUp [])) = M.continue $ moveUp st
 appEvent st (T.VtyEvent (V.EvKey V.KEsc [])) = M.halt st
 appEvent st (T.VtyEvent (V.EvKey (V.KChar '\t') [])) = M.continue $ st & focusRing %~ F.focusNext
@@ -162,4 +182,3 @@ appEvent st (T.VtyEvent e) = do
     Just FilterField -> T.handleEventLensed st edit1 handleEditorEvent e
   let ss2 = updateMatchingXs ss
   continue ss2
-
