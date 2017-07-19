@@ -21,8 +21,8 @@ import qualified Brick.Types as T
 import Brick.Types
 import qualified Brick.Main as M
 import qualified Graphics.Vty as V
-import Brick
-import Brick.Util
+import Brick hiding (clamp)
+import Brick.Util hiding (clamp)
 import Brick.Widgets.Center
 import Brick.Widgets.Border
 import Brick.Widgets.Edit
@@ -191,7 +191,9 @@ updateMatchingXs ss =
       matchingXs =
         DM.filterWithKey (\(x, _) _ -> x =~ regexString) (ss ^. fields)
       ss2 = set matchingFields matchingXs ss
-  in  over selection (\x -> max 0 (min x (length matchingXs - 1))) ss2
+  in  over selection (clamp 0 (length matchingXs - 1)) ss2
+
+clamp lower upper x = max lower (min x upper)
 
 appEvent
   :: AppState -> T.BrickEvent Name Tick -> T.EventM Name (T.Next AppState)
