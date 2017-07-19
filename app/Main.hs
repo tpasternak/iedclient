@@ -32,8 +32,8 @@ import Graphics.Vty
 import Control.Concurrent
 import Brick.BChan (newBChan, writeBChan)
 import qualified Brick.Focus as F
-
-data Name = FilterField | ListField | Viewport1 deriving (Eq,Show,Ord)
+import qualified Data.Map as DM
+data Name = FilterField | ListField | Viewport1 deriving (Eq, Show, Ord)
 
 data IedClient = IedClient {
   address      :: String,
@@ -63,13 +63,13 @@ fetchAndSaveModel con modelsDir modelFile = do
   return model_
 
 data Model = Model {
-  _fields :: [((String,FunctionalConstraint),MmsVar)],
-  _matchingFields :: [((String,FunctionalConstraint),MmsVar)],
+  _fields :: DM.Map (String,FunctionalConstraint) (Maybe MmsVar),
+  _matchingFields :: DM.Map (String,FunctionalConstraint) (Maybe MmsVar),
   _selection :: Int,
   _filterReg :: String,
   _focusRing :: F.FocusRing Name,
   _edit1 :: Editor String Name,
-  _mv :: MVar (),
+  _mv :: MVar [(String,FunctionalConstraint)],
   _refreshing :: Bool
   }
 
@@ -87,10 +87,12 @@ fieldsListV m = border $ viewport Viewport1 Vertical $ vBox
       hLimit 50 (str x <+> fill ' ')
         <+> str (show y)
         <+> str "  "
-        <+> str (show z)
+        <+> str (showMaybe z)
         <+> fill ' '
     )
-    (m ^. matchingFields)
+    (DM.toList $ m ^. matchingFields)
+  showMaybe = maybe "" show
+
 
 blackOnWhite = withAttr (attrName "whiteBg") . withAttr (attrName "blackFg")
 
@@ -102,7 +104,7 @@ drawUI m = [e <=> refreshingStatus <=> fieldsListV m <=> helpBar]
   refreshingStatus = str (if m ^. refreshing then "Refreshing" else " ")
   helpBar =
     blackOnWhite (str "F5")
-      <+> str " refresh | "
+      <+> str " read | "
       <+> blackOnWhite (str "Esc")
       <+> str " exit"
 
@@ -122,7 +124,7 @@ app = M.App
 
 mmsReadSeries con model = forM model $ \(ref, fc) -> do
   val <- readVal con ref fc
-  return ((ref, fc), val)
+  return ((ref, fc), Just val)
 
 
 main :: IO ()
@@ -146,23 +148,25 @@ main = do
           hClose file
           fetchAndSaveModel con modelsDir modelFile
 
-  let modelFiltered = filter (\(ref, _) -> ref =~ filterExp args) model
-  sts <- mmsReadSeries con modelFiltered
+  let sts = zip model (repeat Nothing)
   if tui args
     then do
       chan <- newBChan 1
       mv   <- newEmptyMVar
       forkIO $ forever $ do
-        takeMVar mv
-        sts <- mmsReadSeries con modelFiltered
+        listOfFieldsToUpdate <- takeMVar mv
+        sts                  <- mmsReadSeries con listOfFieldsToUpdate
         writeBChan chan $ Tick sts
       customMain (V.mkVty V.defaultConfig)
                  (Just chan)
                  app
-                 (initialState sts mv)
+                 (initialState (DM.fromList sts) mv)
       return ()
-    else forM_ sts $ \((ref, fc), val) ->
-      putStrLn $ ref ++ "[" ++ show fc ++ "]: " ++ show val
+    else do
+      let modelFiltered = filter (\(ref, _) -> ref =~ filterExp args) model
+      sts <- mmsReadSeries con modelFiltered
+      forM_ sts $ \((ref, fc), val) ->
+        putStrLn $ ref ++ "[" ++ show fc ++ "]: " ++ maybe "" show val
 
 initialState sts mv = Model sts
                             sts
@@ -179,23 +183,25 @@ moveDown st | st ^. selection == length (st ^. matchingFields) - 1 = st
 moveUp st | st ^. selection == 0 = st
           | otherwise            = over selection (\x -> x - 1) st
 
-data Tick = Tick [((String,FunctionalConstraint),MmsVar)]
+data Tick = Tick [((String,FunctionalConstraint),Maybe MmsVar)]
 
 updateMatchingXs ss =
   let regexString = head $ getEditContents $ ss ^. edit1
-      matchingXs  = filter ((=~regexString) . \((x, _), _) -> x) (ss ^. fields)
-      ss2         = set matchingFields matchingXs ss
+      matchingXs =
+        DM.filterWithKey (\(x, _) _ -> x =~ regexString) (ss ^. fields)
+      ss2 = set matchingFields matchingXs ss
   in  over selection (\x -> max 0 (min x (length matchingXs - 1))) ss2
 appEvent :: Model -> T.BrickEvent Name Tick -> T.EventM Name (T.Next Model)
 appEvent st (T.VtyEvent (V.EvKey V.KDown [])) = M.continue $ moveDown st
 appEvent st (AppEvent   (Tick sts          )) = do
-  let ss  = set fields sts st
-  let ss2 = updateMatchingXs ss
-  let ss3 = set refreshing False ss2
+  let stsMerged = DM.unionWith (\_ y -> y) (st ^. fields) (DM.fromList sts)
+  let ss        = set fields stsMerged st
+  let ss2       = updateMatchingXs ss
+  let ss3       = set refreshing False ss2
   M.continue ss3
 appEvent st (T.VtyEvent (V.EvKey (V.KFun 5) [])) = if not $ st ^. refreshing
   then M.suspendAndResume $ do
-    putMVar (st ^. mv) ()
+    putMVar (st ^. mv) $ map fst (DM.toList (st ^. matchingFields))
     return $ set refreshing True st
   else continue st
 appEvent st (T.VtyEvent (V.EvKey V.KUp  [])) = M.continue $ moveUp st

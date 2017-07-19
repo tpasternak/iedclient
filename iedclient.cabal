@@ -31,6 +31,7 @@ executable iedclient
                      , brick
                      , vty
                      , lens
+                     , containers
 
   default-language:    Haskell2010
 
