@@ -43,22 +43,24 @@ data IedClient = IedClient {
   tui          :: Bool
   } deriving (Show, Data, Typeable)
 
-iedclient = IedClient
-              { address = "localhost" &= help "IP Address"
-              , port = 102 &= help "IP Port"
-              , refreshCache = False &= help "Refresh cached model for the device"
-              , filterExp = def &= help "Filter fields by this regex"
-              , tui = False &= help "Terminal user interface"
-              } &= summary "IEC 61850 device client"
+iedclient =
+  IedClient
+      { address      = "localhost" &= help "IP Address"
+      , port         = 102 &= help "IP Port"
+      , refreshCache = False &= help "Refresh cached model for the device"
+      , filterExp    = def &= help "Filter fields by this regex"
+      , tui          = False &= help "Terminal user interface"
+      }
+    &= summary "IEC 61850 device client"
 
 fetchAndSaveModel con modelsDir modelFile = do
-                   model_ <- discover con
-                   createDirectoryIfMissing True modelsDir
-                   (path,file) <- openTempFile modelsDir "temporaryModel"
-                   hPutStr file (show model_)
-                   hClose file
-                   renameFile path modelFile
-                   return model_
+  model_ <- discover con
+  createDirectoryIfMissing True modelsDir
+  (path, file) <- openTempFile modelsDir "temporaryModel"
+  hPutStr file (show model_)
+  hClose file
+  renameFile path modelFile
+  return model_
 
 data Model = Model {
   _fields :: [(String,FunctionalConstraint,MmsVar)],
@@ -74,107 +76,132 @@ data Model = Model {
 makeLenses ''Model
 
 fieldsListV :: Model -> Widget Name
-fieldsListV m = border $ viewport Viewport1 Vertical $ vBox (vLimit 1 <$> visibleXs)
-  where visibleXs = over (element $ m ^. selection) (visible . withAttr (attrName "blueBg")) stringedXs
-        stringedXs = map (\(x,y,z) -> hLimit 50 (str x <+> fill ' ') <+> str (show y) <+> str "  "  <+> str(show z) <+> fill ' ') (m ^. matchingFields)
+fieldsListV m = border $ viewport Viewport1 Vertical $ vBox
+  (vLimit 1 <$> visibleXs)
+ where
+  visibleXs = over (element $ m ^. selection)
+                   (visible . withAttr (attrName "blueBg"))
+                   stringedXs
+  stringedXs = map
+    ( \(x, y, z) ->
+      hLimit 50 (str x <+> fill ' ')
+        <+> str (show y)
+        <+> str "  "
+        <+> str (show z)
+        <+> fill ' '
+    )
+    (m ^. matchingFields)
 
-blackOnWhite = withAttr (attrName "whiteBg") . withAttr (attrName "blackFg") 
+blackOnWhite = withAttr (attrName "whiteBg") . withAttr (attrName "blackFg")
 
 drawUI :: Model -> [Widget Name]
 drawUI m = [e <=> refreshingStatus <=> fieldsListV m <=> helpBar]
-  where e = vLimit 3 $ border (F.withFocusRing (m^. focusRing) renderEditor (m^. edit1))
-        refreshingStatus = str (if m ^. refreshing then "Refreshing" else " ")
-        helpBar =  blackOnWhite (str "F5") <+> str " refresh | " <+> blackOnWhite (str "Esc") <+> str " exit"
+ where
+  e = vLimit 3
+    $ border (F.withFocusRing (m ^. focusRing) renderEditor (m ^. edit1))
+  refreshingStatus = str (if m ^. refreshing then "Refreshing" else " ")
+  helpBar =
+    blackOnWhite (str "F5")
+      <+> str " refresh | "
+      <+> blackOnWhite (str "Esc")
+      <+> str " exit"
 
 app :: M.App Model Tick Name
-app =
-    M.App { M.appDraw = drawUI
-          , M.appStartEvent = return
-          , M.appHandleEvent = appEvent
-          , M.appAttrMap =
-              const $ attrMap V.defAttr
-              [ (attrName "blueBg", Brick.Util.bg Graphics.Vty.blue),
-                (attrName "blackFg", Brick.Util.fg Graphics.Vty.black),
-                (attrName "whiteBg", Brick.Util.bg Graphics.Vty.white)]
-          , M.appChooseCursor =  F.focusRingCursor (^.focusRing)
-          }
+app = M.App
+  { M.appDraw        = drawUI
+  , M.appStartEvent  = return
+  , M.appHandleEvent = appEvent
+  , M.appAttrMap     = const $ attrMap
+    V.defAttr
+    [ (attrName "blueBg" , Brick.Util.bg Graphics.Vty.blue)
+    , (attrName "blackFg", Brick.Util.fg Graphics.Vty.black)
+    , (attrName "whiteBg", Brick.Util.bg Graphics.Vty.white)
+    ]
+  , M.appChooseCursor = F.focusRingCursor (^.focusRing)
+  }
 
-mmsReadSeries con model =
-  forM model $ \(ref, fc) -> do
-    val <- readVal con ref fc
-    return ((ref, fc), val)
+mmsReadSeries con model = forM model $ \(ref, fc) -> do
+  val <- readVal con ref fc
+  return ((ref, fc), val)
 
 
 main :: IO ()
 main = do
-  args <- cmdArgs iedclient
-  con <- connect (address args) (fromInteger . port $ args)
+  args    <- cmdArgs iedclient
+  con     <- connect (address args) (fromInteger . port $ args)
   homeDir <- getHomeDirectory
   let modelsDir = homeDir ++ "/" ++ ".iedclient.d/models/"
   let modelFile = modelsDir ++ "/" ++ address args
   modelExists <- doesPathExist modelFile
-  model <- if not modelExists || refreshCache args
-              then fetchAndSaveModel con modelsDir modelFile
-              else do
-                 file <- openFile modelFile ReadMode
-                 contents <- hGetContents file
-                 case readMaybe contents of
-                   Just x -> do
-                     hClose file
-                     return x
-                   Nothing -> do
-                     hClose file
-                     fetchAndSaveModel con modelsDir modelFile
+  model       <- if not modelExists || refreshCache args
+    then fetchAndSaveModel con modelsDir modelFile
+    else do
+      file     <- openFile modelFile ReadMode
+      contents <- hGetContents file
+      case readMaybe contents of
+        Just x -> do
+          hClose file
+          return x
+        Nothing -> do
+          hClose file
+          fetchAndSaveModel con modelsDir modelFile
 
   let modelFiltered = filter (\(ref, _) -> ref =~ filterExp args) model
   sts <- mmsReadSeries con modelFiltered
-  if tui args then do
-    chan <- newBChan 1
-    mv <- newEmptyMVar
-    forkIO $ forever $ do
-      takeMVar mv
-      sts <- mmsReadSeries con modelFiltered
-      writeBChan chan $ Tick sts
-    x <- customMain (V.mkVty V.defaultConfig) (Just chan) app (initialState sts mv)
-    return ()
-  else
-    forM_ sts $ \(ref, fc, val) -> putStrLn $ ref ++ "[" ++ show fc ++ "]: " ++ show val
+  if tui args
+    then do
+      chan <- newBChan 1
+      mv   <- newEmptyMVar
+      forkIO $ forever $ do
+        takeMVar mv
+        sts <- mmsReadSeries con modelFiltered
+        writeBChan chan $ Tick sts
+      x <- customMain (V.mkVty V.defaultConfig)
+                      (Just chan)
+                      app
+                      (initialState sts mv)
+      return ()
+    else forM_ sts $ \(ref, fc, val) ->
+      putStrLn $ ref ++ "[" ++ show fc ++ "]: " ++ show val
 
-initialState sts mv =Model sts sts 0 "" (F.focusRing [FilterField, FilterField])
-                  (editor FilterField (str . unlines) Nothing "") mv False
+initialState sts mv = Model sts
+                            sts
+                            0
+                            ""
+                            (F.focusRing [FilterField, FilterField])
+                            (editor FilterField (str . unlines) Nothing "")
+                            mv
+                            False
 
-moveDown st
-  | st ^. selection == length (st ^. matchingFields) -1 = st
-  | otherwise = over selection (+1) st
+moveDown st | st ^. selection == length (st ^. matchingFields) - 1 = st
+            | otherwise = over selection (+1) st
 
-moveUp st
-  | st ^. selection == 0 = st
-  | otherwise = over selection (\x -> x - 1) st
+moveUp st | st ^. selection == 0 = st
+          | otherwise            = over selection (\x -> x - 1) st
 
 data Tick = Tick [(String,FunctionalConstraint,MmsVar)]
 
 updateMatchingXs ss =
   let regexString = head $ getEditContents $ ss ^. edit1
-      matchingXs = filter ((=~ regexString) . \(x,_,_) -> x)  (ss ^. fields)
-      ss2 = set matchingFields matchingXs ss
-  in over selection (\x -> max  0 (min x (length matchingXs - 1))) ss2
+      matchingXs  = filter ((=~regexString) . \(x, _, _) -> x) (ss ^. fields)
+      ss2         = set matchingFields matchingXs ss
+  in  over selection (\x -> max 0 (min x (length matchingXs - 1))) ss2
 appEvent :: Model -> T.BrickEvent Name Tick -> T.EventM Name (T.Next Model)
 appEvent st (T.VtyEvent (V.EvKey V.KDown [])) = M.continue $ moveDown st
-appEvent st (AppEvent (Tick sts)) = do
-  let ss = set fields sts st
+appEvent st (AppEvent   (Tick sts          )) = do
+  let ss  = set fields sts st
   let ss2 = updateMatchingXs ss
   let ss3 = set refreshing False ss2
   M.continue ss3
-appEvent st (T.VtyEvent (V.EvKey (V.KFun 5) [])) =
-  if not $ st ^. refreshing then
-    M.suspendAndResume $ do
+appEvent st (T.VtyEvent (V.EvKey (V.KFun 5) [])) = if not $ st ^. refreshing
+  then M.suspendAndResume $ do
     putMVar (st ^. mv) ()
-    return $  set refreshing True st
-  else
-    continue st
-appEvent st (T.VtyEvent (V.EvKey V.KUp [])) = M.continue $ moveUp st
+    return $ set refreshing True st
+  else continue st
+appEvent st (T.VtyEvent (V.EvKey V.KUp  [])) = M.continue $ moveUp st
 appEvent st (T.VtyEvent (V.EvKey V.KEsc [])) = M.halt st
-appEvent st (T.VtyEvent (V.EvKey (V.KChar '\t') [])) = M.continue $ st & focusRing %~ F.focusNext
+appEvent st (T.VtyEvent (V.EvKey (V.KChar '\t') [])) =
+  M.continue $ st & focusRing %~ F.focusNext
 appEvent st (T.VtyEvent e) = do
   ss <- case F.focusGetCurrent (st ^. focusRing) of
     Just FilterField -> T.handleEventLensed st edit1 handleEditorEvent e
