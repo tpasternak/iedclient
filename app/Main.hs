@@ -203,7 +203,7 @@ appEvent
 appEvent st (T.VtyEvent (V.EvKey V.KEsc  [])) = M.halt st
 appEvent st (T.VtyEvent (V.EvKey V.KDown [])) = M.continue $ moveDown st
 appEvent st (AppEvent   (Tick sts          )) = do
-  let stsMerged = DM.unionWith (\_ y -> y) (st ^. fields) (DM.fromList sts)
+  let stsMerged = DM.unionWith (flip const) (st ^. fields) (DM.fromList sts)
   M.continue
     $ set refreshing False
     . updateMatchingXs
@@ -218,7 +218,9 @@ appEvent st (T.VtyEvent (V.EvKey V.KUp [])) = M.continue $ moveUp st
 appEvent st (T.VtyEvent (V.EvKey (V.KChar '\t') [])) =
   M.continue $ st & focusRing %~ F.focusNext
 appEvent st (T.VtyEvent e) = do
-  ss <- case F.focusGetCurrent (st ^. focusRing) of
-    Just FilterField -> T.handleEventLensed st edit1 handleEditorEvent e
-  continue $ updateMatchingXs ss
+  newSt <- case F.focusGetCurrent (st ^. focusRing) of
+    Just FilterField -> do
+      editorHandledSt <- T.handleEventLensed st edit1 handleEditorEvent e
+      return $ updateMatchingXs editorHandledSt
+  continue $ newSt
 
