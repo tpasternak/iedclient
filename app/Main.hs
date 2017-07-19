@@ -32,7 +32,6 @@ import Graphics.Vty
 import Control.Concurrent
 import Brick.BChan (newBChan, writeBChan)
 import qualified Brick.Focus as F
-import Control.Concurrent
 
 data Name = FilterField | ListField | Viewport1 deriving (Eq,Show,Ord)
 
@@ -100,11 +99,11 @@ app =
           , M.appChooseCursor =  F.focusRingCursor (^.focusRing)
           }
 
-mmsReadSeries con model = do
-  sts <- forM model $ \(ref, fc) -> do
+mmsReadSeries con model =
+  forM model $ \(ref, fc) -> do
     val <- readVal con ref fc
-    return (ref, fc, val)
-  return sts
+    return ((ref, fc), val)
+
 
 main :: IO ()
 main = do
@@ -135,7 +134,7 @@ main = do
     forkIO $ forever $ do
       takeMVar mv
       sts <- mmsReadSeries con modelFiltered
-      writeBChan chan (Tick sts)
+      writeBChan chan $ Tick sts
     x <- customMain (V.mkVty V.defaultConfig) (Just chan) app (initialState sts mv)
     return ()
   else
@@ -173,7 +172,6 @@ appEvent st (T.VtyEvent (V.EvKey (V.KFun 5) [])) =
     return $  set refreshing True st
   else
     continue st
-
 appEvent st (T.VtyEvent (V.EvKey V.KUp [])) = M.continue $ moveUp st
 appEvent st (T.VtyEvent (V.EvKey V.KEsc [])) = M.halt st
 appEvent st (T.VtyEvent (V.EvKey (V.KChar '\t') [])) = M.continue $ st & focusRing %~ F.focusNext
