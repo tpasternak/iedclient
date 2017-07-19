@@ -195,24 +195,25 @@ updateMatchingXs ss =
 
 appEvent
   :: AppState -> T.BrickEvent Name Tick -> T.EventM Name (T.Next AppState)
+appEvent st (T.VtyEvent (V.EvKey V.KEsc [])) = M.halt st
 appEvent st (T.VtyEvent (V.EvKey V.KDown [])) = M.continue $ moveDown st
 appEvent st (AppEvent   (Tick sts          )) = do
   let stsMerged = DM.unionWith (\_ y -> y) (st ^. fields) (DM.fromList sts)
-  let ss        = set fields stsMerged st
-  let ss2       = updateMatchingXs ss
-  let ss3       = set refreshing False ss2
-  M.continue ss3
+  M.continue
+    $ set refreshing False
+    . updateMatchingXs
+    . set fields stsMerged
+    $ st
 appEvent st (T.VtyEvent (V.EvKey (V.KFun 5) [])) = if not $ st ^. refreshing
   then M.suspendAndResume $ do
     putMVar (st ^. mv) $ map fst (DM.toList (st ^. matchingFields))
     return $ set refreshing True st
   else continue st
 appEvent st (T.VtyEvent (V.EvKey V.KUp  [])) = M.continue $ moveUp st
-appEvent st (T.VtyEvent (V.EvKey V.KEsc [])) = M.halt st
 appEvent st (T.VtyEvent (V.EvKey (V.KChar '\t') [])) =
   M.continue $ st & focusRing %~ F.focusNext
 appEvent st (T.VtyEvent e) = do
   ss <- case F.focusGetCurrent (st ^. focusRing) of
     Just FilterField -> T.handleEventLensed st edit1 handleEditorEvent e
-  let ss2 = updateMatchingXs ss
-  continue ss2
+  continue $ updateMatchingXs ss
+
