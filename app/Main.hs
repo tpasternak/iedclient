@@ -62,7 +62,7 @@ fetchAndSaveModel con modelsDir modelFile = do
   renameFile path modelFile
   return model_
 
-data Model = Model {
+data AppState = AppState {
   _fields :: DM.Map (String,FunctionalConstraint) (Maybe MmsVar),
   _matchingFields :: DM.Map (String,FunctionalConstraint) (Maybe MmsVar),
   _selection :: Int,
@@ -73,9 +73,9 @@ data Model = Model {
   _refreshing :: Bool
   }
 
-makeLenses ''Model
+makeLenses ''AppState
 
-fieldsListV :: Model -> Widget Name
+fieldsListV :: AppState -> Widget Name
 fieldsListV m = border $ viewport Viewport1 Vertical $ vBox
   (vLimit 1 <$> visibleXs)
  where
@@ -96,7 +96,7 @@ fieldsListV m = border $ viewport Viewport1 Vertical $ vBox
 
 blackOnWhite = withAttr (attrName "whiteBg") . withAttr (attrName "blackFg")
 
-drawUI :: Model -> [Widget Name]
+drawUI :: AppState -> [Widget Name]
 drawUI m = [e <=> refreshingStatus <=> fieldsListV m <=> helpBar]
  where
   e = vLimit 3
@@ -108,7 +108,7 @@ drawUI m = [e <=> refreshingStatus <=> fieldsListV m <=> helpBar]
       <+> blackOnWhite (str "Esc")
       <+> str " exit"
 
-app :: M.App Model Tick Name
+app :: M.App AppState Tick Name
 app = M.App
   { M.appDraw        = drawUI
   , M.appStartEvent  = return
@@ -148,9 +148,9 @@ main = do
           hClose file
           fetchAndSaveModel con modelsDir modelFile
 
-  let sts = zip model (repeat Nothing)
   if tui args
     then do
+      let sts = zip model $ repeat Nothing
       chan <- newBChan 1
       mv   <- newEmptyMVar
       forkIO $ forever $ do
@@ -168,14 +168,15 @@ main = do
       forM_ sts $ \((ref, fc), val) ->
         putStrLn $ ref ++ "[" ++ show fc ++ "]: " ++ maybe "" show val
 
-initialState sts mv = Model sts
-                            sts
-                            0
-                            ""
-                            (F.focusRing [FilterField, FilterField])
-                            (editor FilterField (str . unlines) Nothing "")
-                            mv
-                            False
+initialState sts mv = AppState
+  sts
+  sts
+  0
+  ""
+  (F.focusRing [FilterField, FilterField])
+  (editor FilterField (str . unlines) Nothing "")
+  mv
+  False
 
 moveDown st | st ^. selection == length (st ^. matchingFields) - 1 = st
             | otherwise = over selection (+1) st
@@ -191,7 +192,9 @@ updateMatchingXs ss =
         DM.filterWithKey (\(x, _) _ -> x =~ regexString) (ss ^. fields)
       ss2 = set matchingFields matchingXs ss
   in  over selection (\x -> max 0 (min x (length matchingXs - 1))) ss2
-appEvent :: Model -> T.BrickEvent Name Tick -> T.EventM Name (T.Next Model)
+
+appEvent
+  :: AppState -> T.BrickEvent Name Tick -> T.EventM Name (T.Next AppState)
 appEvent st (T.VtyEvent (V.EvKey V.KDown [])) = M.continue $ moveDown st
 appEvent st (AppEvent   (Tick sts          )) = do
   let stsMerged = DM.unionWith (\_ y -> y) (st ^. fields) (DM.fromList sts)
