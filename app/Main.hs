@@ -63,8 +63,8 @@ fetchAndSaveModel con modelsDir modelFile = do
   return model_
 
 data Model = Model {
-  _fields :: [(String,FunctionalConstraint,MmsVar)],
-  _matchingFields :: [(String,FunctionalConstraint,MmsVar)],
+  _fields :: [((String,FunctionalConstraint),MmsVar)],
+  _matchingFields :: [((String,FunctionalConstraint),MmsVar)],
   _selection :: Int,
   _filterReg :: String,
   _focusRing :: F.FocusRing Name,
@@ -83,7 +83,7 @@ fieldsListV m = border $ viewport Viewport1 Vertical $ vBox
                    (visible . withAttr (attrName "blueBg"))
                    stringedXs
   stringedXs = map
-    ( \(x, y, z) ->
+    ( \((x, y), z) ->
       hLimit 50 (str x <+> fill ' ')
         <+> str (show y)
         <+> str "  "
@@ -156,12 +156,12 @@ main = do
         takeMVar mv
         sts <- mmsReadSeries con modelFiltered
         writeBChan chan $ Tick sts
-      x <- customMain (V.mkVty V.defaultConfig)
-                      (Just chan)
-                      app
-                      (initialState sts mv)
+      customMain (V.mkVty V.defaultConfig)
+                 (Just chan)
+                 app
+                 (initialState sts mv)
       return ()
-    else forM_ sts $ \(ref, fc, val) ->
+    else forM_ sts $ \((ref, fc), val) ->
       putStrLn $ ref ++ "[" ++ show fc ++ "]: " ++ show val
 
 initialState sts mv = Model sts
@@ -179,11 +179,11 @@ moveDown st | st ^. selection == length (st ^. matchingFields) - 1 = st
 moveUp st | st ^. selection == 0 = st
           | otherwise            = over selection (\x -> x - 1) st
 
-data Tick = Tick [(String,FunctionalConstraint,MmsVar)]
+data Tick = Tick [((String,FunctionalConstraint),MmsVar)]
 
 updateMatchingXs ss =
   let regexString = head $ getEditContents $ ss ^. edit1
-      matchingXs  = filter ((=~regexString) . \(x, _, _) -> x) (ss ^. fields)
+      matchingXs  = filter ((=~regexString) . \((x, _), _) -> x) (ss ^. fields)
       ss2         = set matchingFields matchingXs ss
   in  over selection (\x -> max 0 (min x (length matchingXs - 1))) ss2
 appEvent :: Model -> T.BrickEvent Name Tick -> T.EventM Name (T.Next Model)
