@@ -186,18 +186,21 @@ moveUp st | st ^. selection == 0 = st
 
 data Tick = Tick [((String,FunctionalConstraint),Maybe MmsVar)]
 
+getMatchingFields st =
+  let regexString = head $ getEditContents $ st ^. edit1
+  in  DM.filterWithKey (\(x, _) _ -> x =~ regexString) (st ^. fields)
+
 updateMatchingXs ss =
   let regexString = head $ getEditContents $ ss ^. edit1
-      matchingXs =
-        DM.filterWithKey (\(x, _) _ -> x =~ regexString) (ss ^. fields)
-      ss2 = set matchingFields matchingXs ss
+      matchingXs  = getMatchingFields ss
+      ss2         = set matchingFields matchingXs ss
   in  over selection (clamp 0 (length matchingXs - 1)) ss2
 
 clamp lower upper x = max lower (min x upper)
 
 appEvent
   :: AppState -> T.BrickEvent Name Tick -> T.EventM Name (T.Next AppState)
-appEvent st (T.VtyEvent (V.EvKey V.KEsc [])) = M.halt st
+appEvent st (T.VtyEvent (V.EvKey V.KEsc  [])) = M.halt st
 appEvent st (T.VtyEvent (V.EvKey V.KDown [])) = M.continue $ moveDown st
 appEvent st (AppEvent   (Tick sts          )) = do
   let stsMerged = DM.unionWith (\_ y -> y) (st ^. fields) (DM.fromList sts)
@@ -211,7 +214,7 @@ appEvent st (T.VtyEvent (V.EvKey (V.KFun 5) [])) = if not $ st ^. refreshing
     putMVar (st ^. mv) $ map fst (DM.toList (st ^. matchingFields))
     return $ set refreshing True st
   else continue st
-appEvent st (T.VtyEvent (V.EvKey V.KUp  [])) = M.continue $ moveUp st
+appEvent st (T.VtyEvent (V.EvKey V.KUp [])) = M.continue $ moveUp st
 appEvent st (T.VtyEvent (V.EvKey (V.KChar '\t') [])) =
   M.continue $ st & focusRing %~ F.focusNext
 appEvent st (T.VtyEvent e) = do
