@@ -33,6 +33,8 @@ import Control.Concurrent
 import Brick.BChan (newBChan, writeBChan)
 import qualified Brick.Focus as F
 import qualified Data.Map as DM
+import Data.Data (toConstr)
+
 data Name = FilterField | ListField | Viewport1 deriving (Eq, Show, Ord)
 
 data IedClient = IedClient {
@@ -64,7 +66,7 @@ fetchAndSaveModel con modelsDir modelFile = do
 
 data AppState = AppState {
   _fields :: DM.Map (String,FunctionalConstraint) (Maybe MmsVar),
-  _matchingFields :: DM.Map (String,FunctionalConstraint) (Maybe MmsVar),
+  _matchingFields :: [((String,FunctionalConstraint),(Maybe MmsVar))],
   _selection :: Int,
   _filterReg :: String,
   _focusRing :: F.FocusRing Name,
@@ -90,23 +92,41 @@ fieldsListV m = border $ viewport Viewport1 Vertical $ vBox
         <+> str (showMaybe z)
         <+> fill ' '
     )
-    (DM.toList $ m ^. matchingFields)
+    (m ^. matchingFields)
   showMaybe = maybe "" show
 
 
 blackOnWhite = withAttr (attrName "whiteBg") . withAttr (attrName "blackFg")
 
-drawUI :: AppState -> [Widget Name]
-drawUI m = [e <=> refreshingStatus <=> fieldsListV m <=> helpBar]
+selectionWidget m = vBox
+  [ vLimit 1 ((hLimit 20 $ str "DA reference" <+> fill ' ') <+> str selectedId)
+  , vLimit 1 ((hLimit 20 $ str "FC" <+> fill ' ') <+> str selectedFc)
+  , vLimit 1 ((hLimit 20 $ str "Type" <+> fill ' ') <+> str selectedType)
+  ]
  where
-  e = vLimit 3
-    $ border (F.withFocusRing (m ^. focusRing) renderEditor (m ^. edit1))
+  selectedField = if m ^. selection < length (m ^. matchingFields)
+    then Just ((m ^. matchingFields) !! (m ^. selection))
+    else Nothing
+  selectedId = maybe "" (\f -> f ^. _1 ^. _1) selectedField
+  selectedFc = maybe "" (\f -> show $ f ^. _1 ^. _2) selectedField
+  selectedType =
+    maybe "" (\f -> maybe "-" (show . toConstr) (f ^. _2)) selectedField
+
+drawUI :: AppState -> [Widget Name]
+drawUI m =
+  [(e <+> selectionW) <=> refreshingStatus <=> fieldsListV m <=> helpBar]
+ where
+  e = vLimit 1 $ hLimit 80 $ str "Filter: " <+> F.withFocusRing
+    (m ^. focusRing)
+    renderEditor
+    (m ^. edit1)
   refreshingStatus = str (if m ^. refreshing then "Refreshing" else " ")
   helpBar =
     blackOnWhite (str "F5")
       <+> str " read | "
       <+> blackOnWhite (str "Esc")
       <+> str " exit"
+  selectionW = selectionWidget m
 
 app :: M.App AppState Tick Name
 app = M.App
@@ -170,7 +190,7 @@ main = do
 
 initialState sts mv = AppState
   sts
-  sts
+  (DM.toList sts)
   0
   ""
   (F.focusRing [FilterField, FilterField])
@@ -193,7 +213,7 @@ getMatchingFields st =
 updateMatchingXs ss =
   let regexString = head $ getEditContents $ ss ^. edit1
       matchingXs  = getMatchingFields ss
-      ss2         = set matchingFields matchingXs ss
+      ss2         = set matchingFields (DM.toList matchingXs) ss
   in  over selection (clamp 0 (length matchingXs - 1)) ss2
 
 clamp lower upper x = max lower (min x upper)
@@ -211,7 +231,7 @@ appEvent st (AppEvent   (Tick sts          )) = do
     $ st
 appEvent st (T.VtyEvent (V.EvKey (V.KFun 5) [])) = if not $ st ^. refreshing
   then M.suspendAndResume $ do
-    putMVar (st ^. mv) $ map fst (DM.toList (st ^. matchingFields))
+    putMVar (st ^. mv) $ map fst (st ^. matchingFields)
     return $ set refreshing True st
   else continue st
 appEvent st (T.VtyEvent (V.EvKey V.KUp [])) = M.continue $ moveUp st
