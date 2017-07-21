@@ -103,29 +103,28 @@ fieldsListV m = border $ viewport Viewport1 Vertical $ vBox
 
 blackOnWhite = withAttr (attrName "whiteBg") . withAttr (attrName "blackFg")
 
-selectedField st =
-  if st ^. selection < length (st ^. matchingFields)
+selectedField st = if st ^. selection < length (st ^. matchingFields)
   then Just ((st ^. matchingFields) !! (st ^. selection))
   else Nothing
 
 selectedReference :: AppState -> Maybe String
 selectedReference st = case selectedField st of
-   Just f -> Just $ f ^. _1 ^. _1
-   Nothing -> Nothing
+  Just f  -> Just $ f ^. _1 ^. _1
+  Nothing -> Nothing
 
 
 selectedFc :: AppState -> Maybe FunctionalConstraint
 selectedFc st = case selectedField st of
-   Just f -> Just $ f ^. _1 ^. _2
-   Nothing -> Nothing
+  Just f  -> Just $ f ^. _1 ^. _2
+  Nothing -> Nothing
 
 selectedType st = do
-  field <-  selectedField st
-  val <- field ^. _2
+  field <- selectedField st
+  val   <- field ^. _2
   return $ toConstr val
 
 selectedValue st = maybe "" (\f -> maybe "-" show (f ^. _2)) $ selectedField st
-  
+
 selectionWidget m = vBox
   [ vLimit 1 $ (hLimit 20 $ str "DA reference" <+> fill ' ') <+> str selectedId
   , vLimit 1 $ (hLimit 20 $ str "FC" <+> fill ' ') <+> str selectedFc_
@@ -138,15 +137,15 @@ selectionWidget m = vBox
   ]
  where
   currentSelectedField = selectedField m
-  selectedId = maybe "" show (selectedReference m)
-  selectedFc_ = maybe "" show (selectedFc m)
-  selectedType_ = maybe "" show (selectedType m)
-  selectedValue = maybe "" (\f -> maybe "-" show (f ^. _2)) currentSelectedField
-  newValueLabel =
-    if isNothing $ writeRequest m
-    then withAttr ( attrName "redFg") (str "New Value")
+  selectedId           = maybe "" show (selectedReference m)
+  selectedFc_          = maybe "" show (selectedFc m)
+  selectedType_        = maybe "" show (selectedType m)
+  selectedValue =
+    maybe "" (\f -> maybe "-" show (f ^. _2)) currentSelectedField
+  newValueLabel = if isNothing $ writeRequest m
+    then withAttr (attrName "redFg") (str "New Value")
     else str "New Value"
-  
+
 drawUI :: AppState -> [Widget Name]
 drawUI m =
   [(e <+> selectionW) <=> refreshingStatus <=> fieldsListV m <=> helpBar]
@@ -173,7 +172,7 @@ app = M.App
     [ (attrName "blueBg" , Brick.Util.bg Graphics.Vty.blue)
     , (attrName "blackFg", Brick.Util.fg Graphics.Vty.black)
     , (attrName "whiteBg", Brick.Util.bg Graphics.Vty.white)
-    , (attrName "redFg",   Brick.Util.fg Graphics.Vty.red)    
+    , (attrName "redFg"  , Brick.Util.fg Graphics.Vty.red)
     ]
   , M.appChooseCursor = F.focusRingCursor (^.focusRing)
   }
@@ -214,7 +213,7 @@ main = do
         case req of
           ReadRequest r -> do
             let listOfFieldsToUpdate = r
-            sts  <- mmsReadSeries con listOfFieldsToUpdate
+            sts <- mmsReadSeries con listOfFieldsToUpdate
             writeBChan chan $ Read sts
           WriteRequest ref fc val -> do
             writeVal con ref fc val
@@ -253,30 +252,28 @@ getMatchingFields st =
   in  DM.filterWithKey (\(x, _) _ -> x =~ regexString) (st ^. fields)
 
 updateMatchingXs ss =
-  let matchingXs  = getMatchingFields ss
-      ss2         = set matchingFields (DM.toList matchingXs) ss
+  let matchingXs = getMatchingFields ss
+      ss2        = set matchingFields (DM.toList matchingXs) ss
   in  over selection (clamp 0 (length matchingXs - 1)) ss2
 
 clamp lower upper x = max lower (min x upper)
 
 createMmsVar :: String -> Constr -> Maybe MmsVar
-createMmsVar strVal t =
-  if t == toConstr (MmsInteger 0)
+createMmsVar strVal t = if t == toConstr (MmsInteger 0)
   then do
-        newValInt <- readMaybe strVal :: Maybe Int
-        let newValMms = MmsInteger newValInt
-        return newValMms
+    newValInt <- readMaybe strVal :: Maybe Int
+    let newValMms = MmsInteger newValInt
+    return newValMms
   else Nothing
 
-writeRequest st =
-  case selectedType st of
-    Just t ->
-      let newValString = head $ getEditContents $ st ^. editValue
-          newValMms = createMmsVar newValString t
-          reference = selectedReference st
-          fc = selectedFc st
-      in WriteRequest <$> reference <*>  fc <*>  newValMms
-    Nothing -> Nothing
+writeRequest st = case selectedType st of
+  Just t ->
+    let newValString = head $ getEditContents $ st ^. editValue
+        newValMms    = createMmsVar newValString t
+        reference    = selectedReference st
+        fc           = selectedFc st
+    in  WriteRequest <$> reference <*> fc <*> newValMms
+  Nothing -> Nothing
 
 appEvent
   :: AppState -> T.BrickEvent Name Tick -> T.EventM Name (T.Next AppState)
@@ -294,13 +291,12 @@ appEvent st (T.VtyEvent (V.EvKey (V.KFun 5) [])) = if not $ st ^. refreshing
     putMVar (st ^. mv) $ ReadRequest $ map fst (st ^. matchingFields)
     return $ set refreshing True st
   else continue st
-appEvent st (T.VtyEvent (V.EvKey V.KUp [])) = M.continue $ moveUp st
-appEvent st (T.VtyEvent (V.EvKey V.KEnter [])) =
-  case writeRequest st of
-    Just req -> M.suspendAndResume $ do
-      putMVar (st^.mv) $ req
-      return st
-    Nothing -> continue st
+appEvent st (T.VtyEvent (V.EvKey V.KUp    [])) = M.continue $ moveUp st
+appEvent st (T.VtyEvent (V.EvKey V.KEnter [])) = case writeRequest st of
+  Just req -> M.suspendAndResume $ do
+    putMVar (st ^. mv) $ req
+    return st
+  Nothing -> continue st
 appEvent st (T.VtyEvent (V.EvKey (V.KChar '\t') [])) =
   M.continue $ st & focusRing %~ F.focusNext
 appEvent st (T.VtyEvent e) = do
