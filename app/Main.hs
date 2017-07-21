@@ -28,7 +28,7 @@ import Brick.Widgets.Border
 import Brick.Widgets.Edit
 import Brick.Widgets.Core
 import Data.Bits
-import Data.Maybe (fromMaybe, fromJust)
+import Data.Maybe (fromMaybe, isNothing)
 import Graphics.Vty
 import Control.Concurrent
 import Brick.BChan (newBChan, writeBChan)
@@ -131,7 +131,7 @@ selectionWidget m = vBox
   , vLimit 1 $ (hLimit 20 $ str "FC" <+> fill ' ') <+> str selectedFc_
   , vLimit 1 $ (hLimit 20 $ str "Type" <+> fill ' ') <+> str selectedType_
   , vLimit 1 $ (hLimit 20 $ str "Value" <+> fill ' ') <+> str selectedValue
-  , vLimit 1 $ (hLimit 20 $ str "New Value" <+> fill ' ') <+> F.withFocusRing
+  , vLimit 1 $ (hLimit 20 $ newValueLabel <+> fill ' ') <+> F.withFocusRing
     (m ^. focusRing)
     renderEditor
     (m ^. editValue)
@@ -142,6 +142,10 @@ selectionWidget m = vBox
   selectedFc_ = maybe "" show (selectedFc m)
   selectedType_ = maybe "" show (selectedType m)
   selectedValue = maybe "" (\f -> maybe "-" show (f ^. _2)) currentSelectedField
+  newValueLabel =
+    if isNothing $ writeRequest m
+    then withAttr ( attrName "redFg") (str "New Value")
+    else str "New Value"
   
 drawUI :: AppState -> [Widget Name]
 drawUI m =
@@ -169,6 +173,7 @@ app = M.App
     [ (attrName "blueBg" , Brick.Util.bg Graphics.Vty.blue)
     , (attrName "blackFg", Brick.Util.fg Graphics.Vty.black)
     , (attrName "whiteBg", Brick.Util.bg Graphics.Vty.white)
+    , (attrName "redFg",   Brick.Util.fg Graphics.Vty.red)    
     ]
   , M.appChooseCursor = F.focusRingCursor (^.focusRing)
   }
@@ -257,10 +262,10 @@ clamp lower upper x = max lower (min x upper)
 createMmsVar :: String -> Constr -> Maybe MmsVar
 createMmsVar strVal t =
   if t == toConstr (MmsInteger 0)
-  then 
-        let newValInt = readMaybe strVal :: Maybe Int
-            newValMms = MmsInteger (fromJust newValInt)
-        in Just newValMms
+  then do
+        newValInt <- readMaybe strVal :: Maybe Int
+        let newValMms = MmsInteger newValInt
+        return newValMms
   else Nothing
 
 writeRequest st =
@@ -296,7 +301,6 @@ appEvent st (T.VtyEvent (V.EvKey V.KEnter [])) =
       putMVar (st^.mv) $ req
       return st
     Nothing -> continue st
-
 appEvent st (T.VtyEvent (V.EvKey (V.KChar '\t') [])) =
   M.continue $ st & focusRing %~ F.focusNext
 appEvent st (T.VtyEvent e) = do
