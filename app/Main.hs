@@ -28,6 +28,7 @@ import Brick.Widgets.Border
 import Brick.Widgets.Edit
 import Brick.Widgets.Core
 import Data.Bits
+import Data.Maybe (fromMaybe)
 import Graphics.Vty
 import Control.Concurrent
 import Brick.BChan (newBChan, writeBChan)
@@ -99,10 +100,33 @@ fieldsListV m = border $ viewport Viewport1 Vertical $ vBox
 
 blackOnWhite = withAttr (attrName "whiteBg") . withAttr (attrName "blackFg")
 
+selectedField st =
+  if st ^. selection < length (st ^. matchingFields)
+  then Just ((st ^. matchingFields) !! (st ^. selection))
+  else Nothing
+
+selectedReference :: AppState -> Maybe String
+selectedReference st = case selectedField st of
+   Just f -> Just $ f ^. _1 ^. _1
+   Nothing -> Nothing
+
+
+selectedFc :: AppState -> Maybe FunctionalConstraint
+selectedFc st = case selectedField st of
+   Just f -> Just $ f ^. _1 ^. _2
+   Nothing -> Nothing
+
+selectedType st = do
+  field <-  selectedField st
+  val <- field ^. _2
+  return $ toConstr val
+
+selectedValue st = maybe "" (\f -> maybe "-" show (f ^. _2)) $ selectedField st
+  
 selectionWidget m = vBox
   [ vLimit 1 $ (hLimit 20 $ str "DA reference" <+> fill ' ') <+> str selectedId
-  , vLimit 1 $ (hLimit 20 $ str "FC" <+> fill ' ') <+> str selectedFc
-  , vLimit 1 $ (hLimit 20 $ str "Type" <+> fill ' ') <+> str selectedType
+  , vLimit 1 $ (hLimit 20 $ str "FC" <+> fill ' ') <+> str selectedFc_
+  , vLimit 1 $ (hLimit 20 $ str "Type" <+> fill ' ') <+> str selectedType_
   , vLimit 1 $ (hLimit 20 $ str "Value" <+> fill ' ') <+> str selectedValue
   , vLimit 1 $ (hLimit 20 $ str "New Value" <+> fill ' ') <+> F.withFocusRing
     (m ^. focusRing)
@@ -110,15 +134,12 @@ selectionWidget m = vBox
     (m ^. editValue)
   ]
  where
-  selectedField = if m ^. selection < length (m ^. matchingFields)
-    then Just ((m ^. matchingFields) !! (m ^. selection))
-    else Nothing
-  selectedId = maybe "" (\f -> f ^. _1 ^. _1) selectedField
-  selectedFc = maybe "" (\f -> show $ f ^. _1 ^. _2) selectedField
-  selectedType =
-    maybe "" (\f -> maybe "-" (show . toConstr) (f ^. _2)) selectedField
-  selectedValue = maybe "" (\f -> maybe "-" show (f ^. _2)) selectedField
-
+  currentSelectedField = selectedField m
+  selectedId = maybe "" show (selectedReference m)
+  selectedFc_ = maybe "" show (selectedFc m)
+  selectedType_ = maybe "" show (selectedType m)
+  selectedValue = maybe "" (\f -> maybe "-" show (f ^. _2)) currentSelectedField
+  
 drawUI :: AppState -> [Widget Name]
 drawUI m =
   [(e <+> selectionW) <=> refreshingStatus <=> fieldsListV m <=> helpBar]
@@ -183,7 +204,7 @@ main = do
       forkIO $ forever $ do
         listOfFieldsToUpdate <- takeMVar mv
         sts                  <- mmsReadSeries con listOfFieldsToUpdate
-        writeBChan chan $ Tick sts
+        writeBChan chan $ Read sts
       customMain (V.mkVty V.defaultConfig)
                  (Just chan)
                  app
@@ -212,15 +233,14 @@ moveDown st | st ^. selection == length (st ^. matchingFields) - 1 = st
 moveUp st | st ^. selection == 0 = st
           | otherwise            = over selection (\x -> x - 1) st
 
-data Tick = Tick [((String,FunctionalConstraint),Maybe MmsVar)]
+data Tick = Read [((String,FunctionalConstraint),Maybe MmsVar)]
 
 getMatchingFields st =
   let regexString = head $ getEditContents $ st ^. editFilter
   in  DM.filterWithKey (\(x, _) _ -> x =~ regexString) (st ^. fields)
 
 updateMatchingXs ss =
-  let regexString = head $ getEditContents $ ss ^. editFilter
-      matchingXs  = getMatchingFields ss
+  let matchingXs  = getMatchingFields ss
       ss2         = set matchingFields (DM.toList matchingXs) ss
   in  over selection (clamp 0 (length matchingXs - 1)) ss2
 
@@ -230,7 +250,7 @@ appEvent
   :: AppState -> T.BrickEvent Name Tick -> T.EventM Name (T.Next AppState)
 appEvent st (T.VtyEvent (V.EvKey V.KEsc  [])) = M.halt st
 appEvent st (T.VtyEvent (V.EvKey V.KDown [])) = M.continue $ moveDown st
-appEvent st (AppEvent   (Tick sts          )) = do
+appEvent st (AppEvent   (Read sts          )) = do
   let stsMerged = DM.unionWith (flip const) (st ^. fields) (DM.fromList sts)
   M.continue
     $ set refreshing False
@@ -243,6 +263,16 @@ appEvent st (T.VtyEvent (V.EvKey (V.KFun 5) [])) = if not $ st ^. refreshing
     return $ set refreshing True st
   else continue st
 appEvent st (T.VtyEvent (V.EvKey V.KUp [])) = M.continue $ moveUp st
+appEvent st (T.VtyEvent (V.EvKey V.KEnter [])) =
+  case selectedType st of
+    Just t ->
+      if t == toConstr (MmsInteger 0)
+      then do
+        let newValString = head $ getEditContents $ st ^. editFilter
+        let newValInt = readMaybe newValString :: Maybe Int
+        continue st
+      else continue st
+    Nothing -> continue st
 appEvent st (T.VtyEvent (V.EvKey (V.KChar '\t') [])) =
   M.continue $ st & focusRing %~ F.focusNext
 appEvent st (T.VtyEvent e) = do
