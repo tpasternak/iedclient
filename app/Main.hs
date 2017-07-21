@@ -263,6 +263,16 @@ createMmsVar strVal t =
         in Just newValMms
   else Nothing
 
+writeRequest st =
+  case selectedType st of
+    Just t ->
+      let newValString = head $ getEditContents $ st ^. editValue
+          newValMms = createMmsVar newValString t
+          reference = selectedReference st
+          fc = selectedFc st
+      in WriteRequest <$> reference <*>  fc <*>  newValMms
+    Nothing -> Nothing
+
 appEvent
   :: AppState -> T.BrickEvent Name Tick -> T.EventM Name (T.Next AppState)
 appEvent st (T.VtyEvent (V.EvKey V.KEsc  [])) = M.halt st
@@ -281,19 +291,12 @@ appEvent st (T.VtyEvent (V.EvKey (V.KFun 5) [])) = if not $ st ^. refreshing
   else continue st
 appEvent st (T.VtyEvent (V.EvKey V.KUp [])) = M.continue $ moveUp st
 appEvent st (T.VtyEvent (V.EvKey V.KEnter [])) =
-  case selectedType st of
-    Just t -> do
-        let newValString = head $ getEditContents $ st ^. editValue
-        let newValMms = createMmsVar newValString t
-        let reference = selectedReference st
-        let fc = selectedFc st
-        let reqMaybe = WriteRequest <$> reference <*>  fc <*>  newValMms
-        case reqMaybe of
-          Just req -> M.suspendAndResume $ do
-            putMVar (st^.mv) $ req
-            return st
-          Nothing -> continue st
+  case writeRequest st of
+    Just req -> M.suspendAndResume $ do
+      putMVar (st^.mv) $ req
+      return st
     Nothing -> continue st
+
 appEvent st (T.VtyEvent (V.EvKey (V.KChar '\t') [])) =
   M.continue $ st & focusRing %~ F.focusNext
 appEvent st (T.VtyEvent e) = do
