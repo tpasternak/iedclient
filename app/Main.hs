@@ -28,7 +28,7 @@ import Brick.Widgets.Border
 import Brick.Widgets.Edit
 import Brick.Widgets.Core
 import Data.Bits
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, fromJust)
 import Graphics.Vty
 import Control.Concurrent
 import Brick.BChan (newBChan, writeBChan)
@@ -65,6 +65,9 @@ fetchAndSaveModel con modelsDir modelFile = do
   renameFile path modelFile
   return model_
 
+data Request = ReadRequest [(String,FunctionalConstraint)] |
+               WriteRequest String FunctionalConstraint MmsVar
+
 data AppState = AppState {
   _fields :: DM.Map (String,FunctionalConstraint) (Maybe MmsVar),
   _matchingFields :: [((String,FunctionalConstraint),(Maybe MmsVar))],
@@ -73,7 +76,7 @@ data AppState = AppState {
   _focusRing :: F.FocusRing Name,
   _editFilter :: Editor String Name,
   _editValue :: Editor String Name,
-  _mv :: MVar [(String,FunctionalConstraint)],
+  _mv :: MVar Request,
   _refreshing :: Bool
   }
 
@@ -202,9 +205,14 @@ main = do
       chan <- newBChan 10
       mv   <- newEmptyMVar
       forkIO $ forever $ do
-        listOfFieldsToUpdate <- takeMVar mv
-        sts                  <- mmsReadSeries con listOfFieldsToUpdate
-        writeBChan chan $ Read sts
+        req <- takeMVar mv
+        case req of
+          ReadRequest r -> do
+            let listOfFieldsToUpdate = r
+            sts  <- mmsReadSeries con listOfFieldsToUpdate
+            writeBChan chan $ Read sts
+          WriteRequest ref fc val -> do
+            writeVal con ref fc val
       customMain (V.mkVty V.defaultConfig)
                  (Just chan)
                  app
@@ -259,7 +267,7 @@ appEvent st (AppEvent   (Read sts          )) = do
     $ st
 appEvent st (T.VtyEvent (V.EvKey (V.KFun 5) [])) = if not $ st ^. refreshing
   then M.suspendAndResume $ do
-    putMVar (st ^. mv) $ map fst (st ^. matchingFields)
+    putMVar (st ^. mv) $ ReadRequest $ map fst (st ^. matchingFields)
     return $ set refreshing True st
   else continue st
 appEvent st (T.VtyEvent (V.EvKey V.KUp [])) = M.continue $ moveUp st
@@ -268,9 +276,14 @@ appEvent st (T.VtyEvent (V.EvKey V.KEnter [])) =
     Just t ->
       if t == toConstr (MmsInteger 0)
       then do
-        let newValString = head $ getEditContents $ st ^. editFilter
+        let newValString = head $ getEditContents $ st ^. editValue
         let newValInt = readMaybe newValString :: Maybe Int
-        continue st
+        let newValMms = MmsInteger (fromJust newValInt)
+        let reference = fromJust (selectedReference st)
+        let fc = fromJust (selectedFc st)
+        M.suspendAndResume $ do
+          putMVar (st^.mv) $ WriteRequest reference fc newValMms
+          return st
       else continue st
     Nothing -> continue st
 appEvent st (T.VtyEvent (V.EvKey (V.KChar '\t') [])) =
