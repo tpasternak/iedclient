@@ -35,7 +35,7 @@ import qualified Brick.Focus as F
 import qualified Data.Map as DM
 import Data.Data (toConstr)
 
-data Name = FilterField | ListField | Viewport1 deriving (Eq, Show, Ord)
+data Name = FilterEditor | ValueEditor | Viewport1 deriving (Eq, Show, Ord)
 
 data IedClient = IedClient {
   address      :: String,
@@ -70,7 +70,8 @@ data AppState = AppState {
   _selection :: Int,
   _filterReg :: String,
   _focusRing :: F.FocusRing Name,
-  _edit1 :: Editor String Name,
+  _editFilter :: Editor String Name,
+  _editValue :: Editor String Name,
   _mv :: MVar [(String,FunctionalConstraint)],
   _refreshing :: Bool
   }
@@ -99,9 +100,14 @@ fieldsListV m = border $ viewport Viewport1 Vertical $ vBox
 blackOnWhite = withAttr (attrName "whiteBg") . withAttr (attrName "blackFg")
 
 selectionWidget m = vBox
-  [ vLimit 1 ((hLimit 20 $ str "DA reference" <+> fill ' ') <+> str selectedId)
-  , vLimit 1 ((hLimit 20 $ str "FC" <+> fill ' ') <+> str selectedFc)
-  , vLimit 1 ((hLimit 20 $ str "Type" <+> fill ' ') <+> str selectedType)
+  [ vLimit 1 $ (hLimit 20 $ str "DA reference" <+> fill ' ') <+> str selectedId
+  , vLimit 1 $ (hLimit 20 $ str "FC" <+> fill ' ') <+> str selectedFc
+  , vLimit 1 $ (hLimit 20 $ str "Type" <+> fill ' ') <+> str selectedType
+  , vLimit 1 $ (hLimit 20 $ str "Value" <+> fill ' ') <+> str selectedValue
+  , vLimit 1 $ (hLimit 20 $ str "New Value" <+> fill ' ') <+> F.withFocusRing
+    (m ^. focusRing)
+    renderEditor
+    (m ^. editValue)
   ]
  where
   selectedField = if m ^. selection < length (m ^. matchingFields)
@@ -111,15 +117,16 @@ selectionWidget m = vBox
   selectedFc = maybe "" (\f -> show $ f ^. _1 ^. _2) selectedField
   selectedType =
     maybe "" (\f -> maybe "-" (show . toConstr) (f ^. _2)) selectedField
+  selectedValue = maybe "" (\f -> maybe "-" show (f ^. _2)) selectedField
 
 drawUI :: AppState -> [Widget Name]
 drawUI m =
   [(e <+> selectionW) <=> refreshingStatus <=> fieldsListV m <=> helpBar]
  where
-  e = vLimit 1 $ hLimit 80 $ str "Filter: " <+> F.withFocusRing
+  e = vLimit 1 $ hLimit 50 $ str "Filter: " <+> F.withFocusRing
     (m ^. focusRing)
     renderEditor
-    (m ^. edit1)
+    (m ^. editFilter)
   refreshingStatus = str (if m ^. refreshing then "Refreshing" else " ")
   helpBar =
     blackOnWhite (str "F5")
@@ -171,7 +178,7 @@ main = do
   if tui args
     then do
       let sts = zip model $ repeat Nothing
-      chan <- newBChan 1
+      chan <- newBChan 10
       mv   <- newEmptyMVar
       forkIO $ forever $ do
         listOfFieldsToUpdate <- takeMVar mv
@@ -193,8 +200,9 @@ initialState sts mv = AppState
   (DM.toList sts)
   0
   ""
-  (F.focusRing [FilterField, FilterField])
-  (editor FilterField (str . unlines) Nothing "")
+  (F.focusRing [FilterEditor, ValueEditor])
+  (editor FilterEditor (str . unlines) Nothing "")
+  (editor ValueEditor (str . unlines) Nothing "")
   mv
   False
 
@@ -207,11 +215,11 @@ moveUp st | st ^. selection == 0 = st
 data Tick = Tick [((String,FunctionalConstraint),Maybe MmsVar)]
 
 getMatchingFields st =
-  let regexString = head $ getEditContents $ st ^. edit1
+  let regexString = head $ getEditContents $ st ^. editFilter
   in  DM.filterWithKey (\(x, _) _ -> x =~ regexString) (st ^. fields)
 
 updateMatchingXs ss =
-  let regexString = head $ getEditContents $ ss ^. edit1
+  let regexString = head $ getEditContents $ ss ^. editFilter
       matchingXs  = getMatchingFields ss
       ss2         = set matchingFields (DM.toList matchingXs) ss
   in  over selection (clamp 0 (length matchingXs - 1)) ss2
@@ -239,8 +247,9 @@ appEvent st (T.VtyEvent (V.EvKey (V.KChar '\t') [])) =
   M.continue $ st & focusRing %~ F.focusNext
 appEvent st (T.VtyEvent e) = do
   newSt <- case F.focusGetCurrent (st ^. focusRing) of
-    Just FilterField -> do
-      editorHandledSt <- T.handleEventLensed st edit1 handleEditorEvent e
+    Just FilterEditor -> do
+      editorHandledSt <- T.handleEventLensed st editFilter handleEditorEvent e
       return $ updateMatchingXs editorHandledSt
+    Just ValueEditor -> T.handleEventLensed st editValue handleEditorEvent e
   continue $ newSt
 
