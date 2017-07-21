@@ -34,7 +34,7 @@ import Control.Concurrent
 import Brick.BChan (newBChan, writeBChan)
 import qualified Brick.Focus as F
 import qualified Data.Map as DM
-import Data.Data (toConstr)
+import Data.Data (toConstr, Constr)
 
 data Name = FilterEditor | ValueEditor | Viewport1 deriving (Eq, Show, Ord)
 
@@ -254,6 +254,15 @@ updateMatchingXs ss =
 
 clamp lower upper x = max lower (min x upper)
 
+createMmsVar :: String -> Constr -> Maybe MmsVar
+createMmsVar strVal t =
+  if t == toConstr (MmsInteger 0)
+  then 
+        let newValInt = readMaybe strVal :: Maybe Int
+            newValMms = MmsInteger (fromJust newValInt)
+        in Just newValMms
+  else Nothing
+
 appEvent
   :: AppState -> T.BrickEvent Name Tick -> T.EventM Name (T.Next AppState)
 appEvent st (T.VtyEvent (V.EvKey V.KEsc  [])) = M.halt st
@@ -273,18 +282,17 @@ appEvent st (T.VtyEvent (V.EvKey (V.KFun 5) [])) = if not $ st ^. refreshing
 appEvent st (T.VtyEvent (V.EvKey V.KUp [])) = M.continue $ moveUp st
 appEvent st (T.VtyEvent (V.EvKey V.KEnter [])) =
   case selectedType st of
-    Just t ->
-      if t == toConstr (MmsInteger 0)
-      then do
+    Just t -> do
         let newValString = head $ getEditContents $ st ^. editValue
-        let newValInt = readMaybe newValString :: Maybe Int
-        let newValMms = MmsInteger (fromJust newValInt)
-        let reference = fromJust (selectedReference st)
-        let fc = fromJust (selectedFc st)
-        M.suspendAndResume $ do
-          putMVar (st^.mv) $ WriteRequest reference fc newValMms
-          return st
-      else continue st
+        let newValMms = createMmsVar newValString t
+        let reference = selectedReference st
+        let fc = selectedFc st
+        let reqMaybe = WriteRequest <$> reference <*>  fc <*>  newValMms
+        case reqMaybe of
+          Just req -> M.suspendAndResume $ do
+            putMVar (st^.mv) $ req
+            return st
+          Nothing -> continue st
     Nothing -> continue st
 appEvent st (T.VtyEvent (V.EvKey (V.KChar '\t') [])) =
   M.continue $ st & focusRing %~ F.focusNext
