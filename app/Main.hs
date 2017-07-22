@@ -261,8 +261,13 @@ clamp lower upper x = max lower (min x upper)
 createMmsVar :: String -> Constr -> Maybe MmsVar
 createMmsVar strVal t = if t == toConstr (MmsInteger 0)
   then do
-    newValInt <- readMaybe strVal :: Maybe Int
+    newValInt <- readMaybe strVal
     let newValMms = MmsInteger newValInt
+    return newValMms
+  else if t == toConstr (MmsFloat 4.0)
+  then do
+    newValDouble <- readMaybe strVal
+    let newValMms = MmsFloat newValDouble
     return newValMms
   else Nothing
 
