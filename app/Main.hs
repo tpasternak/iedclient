@@ -217,6 +217,8 @@ main = do
             writeBChan chan $ Read sts
           WriteRequest ref fc val -> do
             writeVal con ref fc val
+            sts <- mmsReadSeries con [(ref,fc)]
+            writeBChan chan $ Read sts
       customMain (V.mkVty V.defaultConfig)
                  (Just chan)
                  app
