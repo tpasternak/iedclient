@@ -1,5 +1,4 @@
 {-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# OPTIONS_GHC -fno-cse #-}
 
@@ -18,6 +17,7 @@ import           Text.Regex.Posix
 import Control.Concurrent
 import Brick.BChan (newBChan, writeBChan)
 import Tui(Tick(..), Request(..), tuiMain)
+import Control.DeepSeq(($!!))
 
 data IedClient = IedClient {
   address      :: String,
@@ -57,19 +57,17 @@ main = do
   homeDir <- getHomeDirectory
   let modelsDir = homeDir ++ "/" ++ ".iedclient.d/models/"
   let modelFile = modelsDir ++ "/" ++ address args
-  modelExists <- doesPathExist modelFile
-  model       <- if not modelExists || refreshCache args
+  modelFileExists <- doesPathExist modelFile
+  model       <- if not modelFileExists || refreshCache args
     then fetchAndSaveModel con modelsDir modelFile
     else do
-      file     <- openFile modelFile ReadMode
-      contents <- hGetContents file
+      contents <- withFile modelFile ReadMode $
+        \h -> do
+          contents <- hGetContents h
+          return $!! contents
       case readMaybe contents of
-        Just x -> do
-          hClose file
-          return x
-        Nothing -> do
-          hClose file
-          fetchAndSaveModel con modelsDir modelFile
+        Just x -> return x
+        Nothing -> fetchAndSaveModel con modelsDir modelFile
 
   if tui args
     then do

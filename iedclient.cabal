@@ -38,6 +38,7 @@ executable iedclient
                      , regex-posix
                      , directory
                      , brick
+                     , deepseq
 
   default-language:    Haskell2010
 
