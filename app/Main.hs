@@ -4,12 +4,8 @@
 
 module Main where
 
-import           Control.Exception
 import           Control.Monad
 import           Iec61850.Client
-import           Iec61850.Mms
-import           Iec61850.Enums.FC
-import           System.Console.CmdArgs
 import           System.Directory
 import           System.IO
 import           Text.Read
@@ -18,6 +14,7 @@ import Control.Concurrent
 import Brick.BChan (newBChan, writeBChan)
 import Tui(Tick(..), Request(..), tuiMain)
 import Control.DeepSeq(($!!))
+import System.Console.CmdArgs 
 
 data IedClient = IedClient {
   address      :: String,
@@ -27,6 +24,7 @@ data IedClient = IedClient {
   tui          :: Bool
   } deriving (Show, Data, Typeable)
 
+iedclient :: IedClient
 iedclient =
   IedClient
       { address      = "localhost" &= help "IP Address"
@@ -52,13 +50,13 @@ mmsReadSeries con model = forM model $ \(ref, fc) -> do
 
 main :: IO ()
 main = do
-  args    <- cmdArgs iedclient
-  con     <- connect (address args) (fromInteger . port $ args)
+  ic    <- cmdArgs iedclient
+  con     <- connect (address ic) (fromInteger . port $ ic)
   homeDir <- getHomeDirectory
   let modelsDir = homeDir ++ "/" ++ ".iedclient.d/models/"
-  let modelFile = modelsDir ++ "/" ++ address args
+  let modelFile = modelsDir ++ "/" ++ address ic
   modelFileExists <- doesPathExist modelFile
-  model       <- if not modelFileExists || refreshCache args
+  model       <- if not modelFileExists || refreshCache ic
     then fetchAndSaveModel con modelsDir modelFile
     else do
       contents <- withFile modelFile ReadMode $
@@ -69,12 +67,11 @@ main = do
         Just x -> return x
         Nothing -> fetchAndSaveModel con modelsDir modelFile
 
-  if tui args
+  if tui ic
     then do
-      let sts = zip model $ repeat Nothing
       chan <- newBChan 10
       mv   <- newEmptyMVar
-      forkIO $ forever $ do
+      _ <- forkIO $ forever $ do
         req <- takeMVar mv
         case req of
           ReadRequest r -> do
@@ -85,10 +82,11 @@ main = do
             writeVal con ref fc val
             sts <- mmsReadSeries con [(ref,fc)]
             writeBChan chan $ Read sts
-      tuiMain chan sts mv
+      let sts = zip model $ repeat Nothing
+      _ <- tuiMain chan sts mv
       return ()
     else do
-      let modelFiltered = filter (\(ref, _) -> ref =~ filterExp args) model
+      let modelFiltered = filter (\(ref, _) -> ref =~ filterExp ic) model
       sts <- mmsReadSeries con modelFiltered
       forM_ sts $ \((ref, fc), val) ->
         putStrLn $ ref ++ "[" ++ show fc ++ "]: " ++ maybe "" show val
