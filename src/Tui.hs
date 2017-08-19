@@ -77,16 +77,19 @@ data AppState = AppState {
   _editFilter :: Editor String Name,
   _editValue :: Editor String Name,
   _mv :: MVar Request,
-  _refreshing :: Bool
+  _refreshing :: Bool,
+  _start :: Int
   }
+
+size = 30
 
 makeLenses ''AppState
 
 fieldsListV :: AppState -> Widget Name
-fieldsListV m = border $ viewport Viewport1 Vertical $ vBox
-  (vLimit 1 <$> visibleXs)
+fieldsListV m = border $ vLimit size $ vBox  (vLimit 1 <$> visibleXs) <=> fill ' '
  where
-  visibleXs = over (element $ m ^. selection)
+  visibleXs = take size $ drop (m ^. start) $ highlightedXs
+  highlightedXs = over (element $ m ^. selection)
                    (visible . withAttr (attrName "blueBg"))
                    stringedXs
   stringedXs = map
@@ -99,7 +102,6 @@ fieldsListV m = border $ viewport Viewport1 Vertical $ vBox
     )
     (m ^. matchingFields)
   showMaybe = maybe "" show
-
 
 blackOnWhite = withAttr (attrName "whiteBg") . withAttr (attrName "blackFg")
 
@@ -240,12 +242,15 @@ initialState sts mv = AppState
   (editor ValueEditor (str . unlines) Nothing "")
   mv
   False
+  0
 
 moveDown st | st ^. selection == length (st ^. matchingFields) - 1 = st
+            | (st ^. selection) - (st ^. start) == size - 1 = over selection (+1) . over start (+1) $ st
             | otherwise = over selection (+1) st
 
 moveUp st | st ^. selection == 0 = st
-          | otherwise            = over selection (\x -> x - 1) st
+          | st ^. selection == st ^. start = over selection (\x -> x - 1) . over start (\x -> x - 1) $ st
+          | otherwise = over selection (\x -> x - 1) st
 
 data Tick = Read [((String,FunctionalConstraint),Maybe MmsVar)]
 
@@ -258,7 +263,7 @@ updateMatchingXs :: AppState -> AppState
 updateMatchingXs ss =
   let matchingXs = getMatchingFields ss
       ss2        = set matchingFields (DM.toList matchingXs) ss
-  in  over selection (clamp 0 (length matchingXs - 1)) ss2
+  in  set selection 0 . set start 0 $ ss2
 
 clamp lower upper x = max lower (min x upper)
 
@@ -303,7 +308,7 @@ appEvent st (T.VtyEvent (V.EvKey (V.KFun 5) [])) = if not $ st ^. refreshing
 appEvent st (T.VtyEvent (V.EvKey V.KUp    [])) = M.continue $ moveUp st
 appEvent st (T.VtyEvent (V.EvKey V.KEnter [])) = case writeRequest st of
   Just req -> M.suspendAndResume $ do
-    putMVar (st ^. mv) $ req
+    putMVar (st ^. mv) req
     return st
   Nothing -> continue st
 appEvent st (T.VtyEvent (V.EvKey (V.KChar '\t') [])) =
@@ -314,7 +319,7 @@ appEvent st (T.VtyEvent e) = do
       editorHandledSt <- T.handleEventLensed st editFilter handleEditorEvent e
       return $ updateMatchingXs editorHandledSt
     Just ValueEditor -> T.handleEventLensed st editValue handleEditorEvent e
-  continue $ newSt
+  continue newSt
 
 tuiMain chan sts mv =       customMain (V.mkVty V.defaultConfig)
                  (Just chan)
