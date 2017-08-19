@@ -5,35 +5,35 @@
 
 module Tui where
 
-import           Control.Exception
-import           Control.Monad
-import           Iec61850.Client
-import           Iec61850.Mms
-import           Iec61850.Enums.FC
-import           System.Console.CmdArgs
-import           System.Directory
-import           System.IO
-import           Text.Read
-import           Text.Regex.Posix
-import           Control.Lens
-import           Control.Lens.TH
-import qualified Brick.Types as T
+import Control.Monad
+import Iec61850.Client
+import Iec61850.Mms
+import Iec61850.Enums.FC
+import System.Console.CmdArgs
+import System.Directory
+import System.IO
+import Text.Read
+import Text.Regex.Posix
+import Control.Lens
+import Control.Lens.TH
 import Brick.Types
-import qualified Brick.Main as M
-import qualified Graphics.Vty as V
-import Brick hiding (clamp)
-import Brick.Util hiding (clamp)
+import Brick
+import Brick.Util
 import Brick.Widgets.Center
 import Brick.Widgets.Border
 import Brick.Widgets.Edit
 import Brick.Widgets.Core
 import Data.Bits
-import Data.Maybe (fromMaybe, isNothing)
+import Data.Maybe (fromMaybe, isNothing, fromJust)
 import Graphics.Vty
 import Control.Concurrent
 import Brick.BChan (newBChan, writeBChan)
+import qualified Brick.Main as M
+import qualified Graphics.Vty as V
 import qualified Brick.Focus as F
 import qualified Data.Map as DM
+import qualified Brick.Types as T
+import qualified System.Console.Terminal.Size as Size
 import Data.Data (toConstr, Constr)
 
 data Name = FilterEditor | ValueEditor | Viewport1 deriving (Eq, Show, Ord)
@@ -78,17 +78,16 @@ data AppState = AppState {
   _editValue :: Editor String Name,
   _mv :: MVar Request,
   _refreshing :: Bool,
-  _start :: Int
+  _start :: Int,
+  _size :: Int
   }
-
-size = 30
 
 makeLenses ''AppState
 
 fieldsListV :: AppState -> Widget Name
-fieldsListV m = border $ vLimit size $ vBox  (vLimit 1 <$> visibleXs) <=> fill ' '
+fieldsListV m = border $ vLimit (m ^. size) $ vBox  (vLimit 1 <$> visibleXs) <=> fill ' '
  where
-  visibleXs = take size $ drop (m ^. start) $ highlightedXs
+  visibleXs = take (m ^. size) $ drop (m ^. start) $ highlightedXs
   highlightedXs = over (element $ m ^. selection)
                    (visible . withAttr (attrName "blueBg"))
                    stringedXs
@@ -183,56 +182,7 @@ mmsReadSeries con model = forM model $ \(ref, fc) -> do
   val <- readVal con ref fc
   return ((ref, fc), Just val)
 
-
-main :: IO ()
-main = do
-  args    <- cmdArgs iedclient
-  con     <- connect (address args) (fromInteger . port $ args)
-  homeDir <- getHomeDirectory
-  let modelsDir = homeDir ++ "/" ++ ".iedclient.d/models/"
-  let modelFile = modelsDir ++ "/" ++ address args
-  modelExists <- doesPathExist modelFile
-  model       <- if not modelExists || refreshCache args
-    then fetchAndSaveModel con modelsDir modelFile
-    else do
-      file     <- openFile modelFile ReadMode
-      contents <- hGetContents file
-      case readMaybe contents of
-        Just x -> do
-          hClose file
-          return x
-        Nothing -> do
-          hClose file
-          fetchAndSaveModel con modelsDir modelFile
-
-  if tui args
-    then do
-      let sts = zip model $ repeat Nothing
-      chan <- newBChan 10
-      mv   <- newEmptyMVar
-      forkIO $ forever $ do
-        req <- takeMVar mv
-        case req of
-          ReadRequest r -> do
-            let listOfFieldsToUpdate = r
-            sts <- mmsReadSeries con listOfFieldsToUpdate
-            writeBChan chan $ Read sts
-          WriteRequest ref fc val -> do
-            writeVal con ref fc val
-            sts <- mmsReadSeries con [(ref,fc)]
-            writeBChan chan $ Read sts
-      customMain (V.mkVty V.defaultConfig)
-                 (Just chan)
-                 app
-                 (initialState (DM.fromList sts) mv)
-      return ()
-    else do
-      let modelFiltered = filter (\(ref, _) -> ref =~ filterExp args) model
-      sts <- mmsReadSeries con modelFiltered
-      forM_ sts $ \((ref, fc), val) ->
-        putStrLn $ ref ++ "[" ++ show fc ++ "]: " ++ maybe "" show val
-
-initialState sts mv = AppState
+initialState sts mv initSize = AppState
   sts
   (DM.toList sts)
   0
@@ -243,9 +193,10 @@ initialState sts mv = AppState
   mv
   False
   0
+  initSize
 
 moveDown st | st ^. selection == length (st ^. matchingFields) - 1 = st
-            | (st ^. selection) - (st ^. start) == size - 1 = over selection (+1) . over start (+1) $ st
+            | (st ^. selection) - (st ^. start) == (st ^. size) - 1 = over selection (+1) . over start (+1) $ st
             | otherwise = over selection (+1) st
 
 moveUp st | st ^. selection == 0 = st
@@ -264,8 +215,6 @@ updateMatchingXs ss =
   let matchingXs = getMatchingFields ss
       ss2        = set matchingFields (DM.toList matchingXs) ss
   in  set selection 0 . set start 0 $ ss2
-
-clamp lower upper x = max lower (min x upper)
 
 createMmsVar :: String -> Constr -> Maybe MmsVar
 createMmsVar strVal t = if t == toConstr (MmsInteger 0)
@@ -313,6 +262,9 @@ appEvent st (T.VtyEvent (V.EvKey V.KEnter [])) = case writeRequest st of
   Nothing -> continue st
 appEvent st (T.VtyEvent (V.EvKey (V.KChar '\t') [])) =
   M.continue $ st & focusRing %~ F.focusNext
+appEvent st (T.VtyEvent (V.EvResize x y)) =
+  let newSt = set size (y - 10) st
+  in  M.continue $ newSt
 appEvent st (T.VtyEvent e) = do
   newSt <- case F.focusGetCurrent (st ^. focusRing) of
     Just FilterEditor -> do
@@ -321,7 +273,9 @@ appEvent st (T.VtyEvent e) = do
     Just ValueEditor -> T.handleEventLensed st editValue handleEditorEvent e
   continue newSt
 
-tuiMain chan sts mv =       customMain (V.mkVty V.defaultConfig)
-                 (Just chan)
-                 app
-                 (initialState (DM.fromList sts) mv)
+tuiMain chan sts mv = do
+  initSize <- Size.size
+  customMain (V.mkVty V.defaultConfig)
+    (Just chan)
+    app
+    (initialState (DM.fromList sts) mv ((Size.height $ fromJust initSize) - 10))

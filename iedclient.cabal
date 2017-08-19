@@ -24,7 +24,8 @@ library
                      , vty
                      , lens
                      , containers
-  
+                     , terminal-size
+
   default-language:    Haskell2010
 
 executable iedclient
