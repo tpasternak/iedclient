@@ -249,10 +249,12 @@ moveUp st | st ^. selection == 0 = st
 
 data Tick = Read [((String,FunctionalConstraint),Maybe MmsVar)]
 
+getMatchingFields :: AppState -> DM.Map (String, FunctionalConstraint) (Maybe MmsVar)
 getMatchingFields st =
   let regexString = head $ getEditContents $ st ^. editFilter
   in  DM.filterWithKey (\(x, _) _ -> x =~ regexString) (st ^. fields)
 
+updateMatchingXs :: AppState -> AppState
 updateMatchingXs ss =
   let matchingXs = getMatchingFields ss
       ss2        = set matchingFields (DM.toList matchingXs) ss
