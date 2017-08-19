@@ -138,7 +138,7 @@ selectionWidget m = vBox
   ]
  where
   currentSelectedField = selectedField m
-  selectedId           = maybe "" show (selectedReference m)
+  selectedId           = fromMaybe "" (selectedReference m)
   selectedFc_          = maybe "" show (selectedFc m)
   selectedType_        = maybe "" show (selectedType m)
   selectedValue =
