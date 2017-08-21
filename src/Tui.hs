@@ -14,6 +14,7 @@ import System.Directory
 import System.IO
 import Text.Read
 import Text.Regex.Posix
+import Text.Regex (mkRegexWithOpts)
 import Control.Lens
 import Control.Lens.TH
 import Brick.Types
@@ -35,6 +36,7 @@ import qualified Data.Map as DM
 import qualified Brick.Types as T
 import qualified System.Console.Terminal.Size as Size
 import Data.Data (toConstr, Constr)
+import Data.Bits ((.|.))
 
 data Name = FilterEditor | ValueEditor | Viewport1 deriving (Eq, Show, Ord)
 
@@ -208,7 +210,8 @@ data Tick = Read [((String,FunctionalConstraint),Maybe MmsVar)]
 getMatchingFields :: AppState -> DM.Map (String, FunctionalConstraint) (Maybe MmsVar)
 getMatchingFields st =
   let regexString = head $ getEditContents $ st ^. editFilter
-  in  DM.filterWithKey (\(x, _) _ -> x =~ regexString) (st ^. fields)
+      caseInsensitiveRegex = mkRegexWithOpts regexString True False
+  in  DM.filterWithKey (\(x, _) _ -> matchTest caseInsensitiveRegex x) (st ^. fields)
 
 updateMatchingXs :: AppState -> AppState
 updateMatchingXs ss =
