@@ -205,7 +205,7 @@ moveUp st | st ^. selection == 0 = st
           | st ^. selection == st ^. start = over selection (\x -> x - 1) . over start (\x -> x - 1) $ st
           | otherwise = over selection (\x -> x - 1) st
 
-data Tick = Read [((String,FunctionalConstraint),Maybe MmsVar)]
+newtype Tick = Read [((String,FunctionalConstraint),Maybe MmsVar)]
 
 getMatchingFields :: AppState -> DM.Map (String, FunctionalConstraint) (Maybe MmsVar)
 getMatchingFields st =
@@ -267,7 +267,7 @@ appEvent st (T.VtyEvent (V.EvKey (V.KChar '\t') [])) =
   M.continue $ st & focusRing %~ F.focusNext
 appEvent st (T.VtyEvent (V.EvResize x y)) =
   let newSt = set size (y - 10) st
-  in  M.continue $ newSt
+  in  M.continue newSt
 appEvent st (T.VtyEvent e) = do
   newSt <- case F.focusGetCurrent (st ^. focusRing) of
     Just FilterEditor -> do
@@ -281,4 +281,4 @@ tuiMain chan sts mv = do
   customMain (V.mkVty V.defaultConfig)
     (Just chan)
     app
-    (initialState (DM.fromList sts) mv ((Size.height $ fromJust initSize) - 10))
+    (initialState (DM.fromList sts) mv (Size.height (fromJust initSize) - 10))
