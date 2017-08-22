@@ -18,7 +18,7 @@ library
   build-depends:       base >= 4.7 && < 5
                      , haskell61850
                      , cmdargs
-                     , regex-posix
+                     , regex-tdfa
                      , directory
                      , brick
                      , vty
@@ -37,7 +37,7 @@ executable iedclient
                      , iedclient
                      , haskell61850
                      , cmdargs
-                     , regex-posix
+                     , regex-tdfa
                      , directory
                      , brick
                      , deepseq

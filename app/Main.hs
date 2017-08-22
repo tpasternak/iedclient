@@ -9,7 +9,7 @@ import           Iec61850.Client
 import           System.Directory
 import           System.IO
 import           Text.Read
-import           Text.Regex.Posix
+import           Text.Regex.TDFA
 import Control.Concurrent
 import Brick.BChan (newBChan, writeBChan)
 import Tui(Tick(..), Request(..), tuiMain)

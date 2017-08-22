@@ -13,7 +13,8 @@ import System.Console.CmdArgs
 import System.Directory
 import System.IO
 import Text.Read
-import Text.Regex.Posix
+import Text.Regex.TDFA(Regex,CompOption(..),ExecOption(..),matchTest)
+import Text.Regex.TDFA.String(compile)
 import Text.Regex (mkRegexWithOpts)
 import Control.Lens
 import Control.Lens.TH
@@ -40,33 +41,6 @@ import Data.Bits ((.|.))
 
 data Name = FilterEditor | ValueEditor | Viewport1 deriving (Eq, Show, Ord)
 
-data IedClient = IedClient {
-  address      :: String,
-  port         :: Integer,
-  filterExp    :: String,
-  refreshCache :: Bool,
-  tui          :: Bool
-  } deriving (Show, Data, Typeable)
-
-iedclient =
-  IedClient
-      { address      = "localhost" &= help "IP Address"
-      , port         = 102 &= help "IP Port"
-      , refreshCache = False &= help "Refresh cached model for the device"
-      , filterExp    = def &= help "Filter fields by this regex"
-      , tui          = False &= help "Terminal user interface"
-      }
-    &= summary "IEC 61850 device client"
-
-fetchAndSaveModel con modelsDir modelFile = do
-  model_ <- discover con
-  createDirectoryIfMissing True modelsDir
-  (path, file) <- openTempFile modelsDir "temporaryModel"
-  hPutStr file (show model_)
-  hClose file
-  renameFile path modelFile
-  return model_
-
 data Request = ReadRequest [(String,FunctionalConstraint)] |
                WriteRequest String FunctionalConstraint MmsVar
 
@@ -77,6 +51,7 @@ data AppState = AppState {
   _filterReg :: String,
   _focusRing :: F.FocusRing Name,
   _editFilter :: Editor String Name,
+  _validFilter :: Bool,
   _editValue :: Editor String Name,
   _mv :: MVar Request,
   _refreshing :: Bool,
@@ -153,10 +128,11 @@ drawUI :: AppState -> [Widget Name]
 drawUI m =
   [(e <+> selectionW) <=> refreshingStatus <=> fieldsListV m <=> helpBar]
  where
-  e = vLimit 1 $ hLimit 50 $ str "Filter: " <+> F.withFocusRing
+  e = vLimit 1 $ hLimit 50 $ filterLabel<+> F.withFocusRing
     (m ^. focusRing)
     renderEditor
     (m ^. editFilter)
+  filterLabel = if m^.validFilter then str "Filter: " else withAttr (attrName "redFg") (str "Filter: ")
   refreshingStatus = str (if m ^. refreshing then "Refreshing" else " ")
   helpBar =
     blackOnWhite (str "F5")
@@ -191,6 +167,7 @@ initialState sts mv initSize = AppState
   ""
   (F.focusRing [FilterEditor, ValueEditor])
   (editor FilterEditor (str . unlines) Nothing "")
+  False
   (editor ValueEditor (str . unlines) Nothing "")
   mv
   False
@@ -207,16 +184,21 @@ moveUp st | st ^. selection == 0 = st
 
 newtype Tick = Read [((String,FunctionalConstraint),Maybe MmsVar)]
 
-getMatchingFields :: AppState -> DM.Map (String, FunctionalConstraint) (Maybe MmsVar)
-getMatchingFields st =
-  let regexString = head $ getEditContents $ st ^. editFilter
-      caseInsensitiveRegex = mkRegexWithOpts regexString True False
-  in  DM.filterWithKey (\(x, _) _ -> matchTest caseInsensitiveRegex x) (st ^. fields)
+getRegex :: String -> Either String Regex
+getRegex regexString = 
+  let compOption = CompOption False False False False False
+      execOption = ExecOption False
+  in compile compOption execOption regexString
+
+getMatchingFields :: Regex -> AppState -> DM.Map (String, FunctionalConstraint) (Maybe MmsVar)
+getMatchingFields regex st = DM.filterWithKey (\(x, _) _ -> matchTest regex x) (st ^. fields)
 
 updateMatchingXs :: AppState -> AppState
-updateMatchingXs ss =
-  let matchingXs = getMatchingFields ss
-      ss2        = set matchingFields (DM.toList matchingXs) ss
+updateMatchingXs ss = 
+  let regex = getRegex $ head $ getEditContents $ ss ^. editFilter
+      ss2 = case regex of
+          Right r -> set validFilter True $ set matchingFields (DM.toList $ getMatchingFields r ss) ss
+          Left l -> set validFilter False ss
   in  set selection 0 . set start 0 $ ss2
 
 createMmsVar :: String -> Constr -> Maybe MmsVar
