@@ -26,7 +26,7 @@ library
                      , containers
                      , terminal-size
                      , regex-compat
-
+                     , mtl
   default-language:    Haskell2010
 
 executable iedclient
@@ -41,6 +41,8 @@ executable iedclient
                      , directory
                      , brick
                      , deepseq
+                     , mtl
+                     , MissingH
 
   default-language:    Haskell2010
 
