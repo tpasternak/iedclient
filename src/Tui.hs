@@ -26,7 +26,6 @@ import Brick.Widgets.Center
 import Brick.Widgets.Border
 import Brick.Widgets.Edit
 import Brick.Widgets.Core
-import Data.Bits
 import Data.Maybe (fromMaybe, isNothing, fromJust)
 import Graphics.Vty
 import Control.Concurrent
@@ -47,7 +46,7 @@ data Request = ReadRequest [(String,FunctionalConstraint)] |
 
 data AppState = AppState {
   _fields :: DM.Map (String,FunctionalConstraint) (Maybe MmsVar),
-  _matchingFields :: [((String,FunctionalConstraint),(Maybe MmsVar))],
+  _matchingFields :: [((String,FunctionalConstraint),Maybe MmsVar)],
   _selection :: Int,
   _filterReg :: String,
   _focusRing :: F.FocusRing Name,
@@ -67,7 +66,7 @@ fieldsListV :: AppState -> Widget Name
 fieldsListV m =
   border $ vLimit (m ^. size) $ vBox (vLimit 1 <$> visibleXs) <=> fill ' '
  where
-  visibleXs     = take (m ^. size) $ drop (m ^. start) $ highlightedXs
+  visibleXs     = take (m ^. size) $ drop (m ^. start) highlightedXs
   highlightedXs = over (element $ m ^. selection)
                        (visible . withAttr (attrName "blueBg"))
                        stringedXs
@@ -107,11 +106,11 @@ selectedType st = do
 selectedValue st = maybe "" (\f -> maybe "-" show (f ^. _2)) $ selectedField st
 
 selectionWidget m = vBox
-  [ vLimit 1 $ (hLimit 20 $ str "DA reference" <+> fill ' ') <+> str selectedId
-  , vLimit 1 $ (hLimit 20 $ str "FC" <+> fill ' ') <+> str selectedFc_
-  , vLimit 1 $ (hLimit 20 $ str "Type" <+> fill ' ') <+> str selectedType_
-  , vLimit 1 $ (hLimit 20 $ str "Value" <+> fill ' ') <+> str selectedValue
-  , vLimit 1 $ (hLimit 20 $ newValueLabel <+> fill ' ') <+> F.withFocusRing
+  [ vLimit 1 $ hLimit 20 (str "DA reference" <+> fill ' ') <+> str selectedId
+  , vLimit 1 $ hLimit 20 (str "FC" <+> fill ' ') <+> str selectedFc_
+  , vLimit 1 $ hLimit 20 (str "Type" <+> fill ' ') <+> str selectedType_
+  , vLimit 1 $ hLimit 20 (str "Value" <+> fill ' ') <+> str selectedValue
+  , vLimit 1 $ hLimit 20 (newValueLabel <+> fill ' ') <+> F.withFocusRing
     (m ^. focusRing)
     renderEditor
     (m ^. editValue)
@@ -224,17 +223,16 @@ updateMatchingXs ss =
   in  set selection 0 . set start 0 $ ss2
 
 createMmsVar :: String -> Constr -> Maybe MmsVar
-createMmsVar strVal t = if t == toConstr (MmsInteger 0)
-  then do
+createMmsVar strVal t
+  | t == toConstr (MmsInteger 0) = do
     newValInt <- readMaybe strVal
     let newValMms = MmsInteger newValInt
     return newValMms
-  else if t == toConstr (MmsFloat 4.0)
-    then do
+  | t == toConstr (MmsFloat 4.0) = do
       newValDouble <- readMaybe strVal
       let newValMms = MmsFloat newValDouble
       return newValMms
-    else Nothing
+  | otherwise = Nothing
 
 writeRequest st = case selectedType st of
   Just t ->
