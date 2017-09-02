@@ -232,6 +232,10 @@ createMmsVar strVal t
       newValDouble <- readMaybe strVal
       let newValMms = MmsFloat newValDouble
       return newValMms
+  | t == toConstr (MmsUnsigned 4) = do
+      newValUnsigned <- readMaybe strVal
+      let newValMms = MmsUnsigned newValUnsigned
+      return newValMms
   | otherwise = Nothing
 
 writeRequest st = case selectedType st of
