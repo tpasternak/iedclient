@@ -236,6 +236,14 @@ createMmsVar strVal t
       newValUnsigned <- readMaybe strVal
       let newValMms = MmsUnsigned newValUnsigned
       return newValMms
+  | t == toConstr (MmsString "") = do
+      return $ MmsString strVal
+  | t == toConstr (MmsBoolean True) =
+      let ans = case strVal of 
+                  "True" -> Just $ MmsBoolean True
+                  "False" -> Just $ MmsBoolean False
+                  _ -> Nothing
+      in ans
   | otherwise = Nothing
 
 writeRequest st = case selectedType st of
