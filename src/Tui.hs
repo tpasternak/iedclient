@@ -238,6 +238,8 @@ createMmsVar strVal t
       return newValMms
   | t == toConstr (MmsString "") = do
       return $ MmsString strVal
+  | t == toConstr (MmsVisibleString "") = do
+      return $ MmsVisibleString strVal
   | t == toConstr (MmsBoolean True) =
       let ans = case strVal of 
                   "True" -> Just $ MmsBoolean True
